@@ -1,0 +1,15 @@
+#################
+## FAUST
+#################
+
+*.cpp
+*.tmp.cpp
+*.tmp.dsp
+*.temp-svg
+*.0.temp-svg
+*.1.temp-svg
+*.2.temp-svg
+*.*~
+LazyLimiter
+LazyLimiter-svg
+LazyLimiter.lv2
