@@ -26,7 +26,7 @@ import ("./compressor-basics.dsp");
 //should be proportional to SR
 // the size of a par() needs to be known at compile time, so (SR/100) doesn't work
 rmsMaxSize = 441; //441
-maxHoldTime = 0.3*44100; //sec
+maxHoldTime = 1*44100; //sec
 
 MAX_flt = fconstant(int LDBL_MAX, <float.h>);
 MIN_flt = fconstant(int LDBL_MIN, <float.h>);
@@ -48,8 +48,10 @@ holdMeter = _<:(_, ((_/(holdTime:max(0.0001))):min(1):max(0):hbargraph("[11]hold
 
 
 maxRateAttack  = hslider("[11]max attack[unit:dB/s][tooltip: ]", 1020, 6, 8000 , 1)/SR;
-maxRateDecay   = hslider("[12]max decay[unit:dB/s][tooltip: ]", 3813, 6, 8000 , 1)/SR;
-holdTime       = hslider("[9]hold time[unit:seconds][tooltip: ]",0.1, 0,   1,  0.001)*maxHoldTime;
+minRateDecay   = hslider("[12]min decay[unit:dB/s][tooltip: ]", 0, 0, 1000 , 1)/SR;
+maxRateDecay   = hslider("[13]max decay[unit:dB/s][tooltip: ]", 1000, 1, 2000 , 1)/SR;
+decayPower     = hslider("[14]decay power", 1, 1, 10 , 0.001);
+holdTime       = hslider("[9]hold time[unit:seconds][tooltip: ]",0.3, 0,   1,  0.001)*maxHoldTime;
 
 powerScale(x) =((x>=0)*(1/((x+1):pow(3))))+((x<0)* (((x*-1)+1):pow(3)));
 
@@ -95,20 +97,21 @@ feedBackLimDetect(x) =
   )~_
 );
 
-feedBackLimDetectHold(x) = (gain,hold)~((_,(_<:_,_)):(cross(2),_)):(_,!)
+feedBackLimDetectHold(x) = (gain,hold)~((_,(_<:_,_))):(_,!)
 with {
 level =
 (abs(x):linear2db);
-gain =
+gain(g,h) =
 (
   (
       ((level>threshold)*maxRateAttack*-1)
       +
-      ((level<threshold)*(_>holdTime)*maxRateDecay)
-    )
-    + _
+      ((level<threshold)*crossfade(holdPercentage(h):pow(decayPower),minRateDecay,maxRateDecay))
+  )
+    + g
     :max(-60):min(0)
 );
+holdPercentage(h) = (h/(holdTime:max(0.0001))):min(1):max(0);
 hold = 
   select2((level>threshold),(_+1),0): min(maxHoldTime): holdMeter;
 };
