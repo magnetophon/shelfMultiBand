@@ -77,7 +77,9 @@ freq  = (hslider("[6]low shelf freq[tooltip: ]",134, 1,   400,   1));
 /*process(x) = (_,x):lowShelfPlusMeter;*/
 
 /*process(x,y) = lowShelfComp(x),lowShelfComp(y);*/
-process(x,y) = feedBackLimLowShelf(x),feedBackLimLowShelf(y);
+/*process(x,y) = feedBackLimLowShelf(x),feedBackLimLowShelf(y);*/
+/*process(x,y) = feedBackLimHighShelf(x),feedBackLimHighShelf(y);*/
+process(x,y) = feedBackLimLowHighShelf(x),feedBackLimLowHighShelf(y);
 
 /*process = */
 /*feedBackLimDetectHold;*/
@@ -95,6 +97,7 @@ crossfade(x,a,b) = a*(1-x),b*x : +;
 /*lowShelfPlusMeter(gain,dry) = gain*dry;*/
 
 lowShelfPlusMeter(freq,gain,dry) = (dry :low_shelf(gain:lowShelfGroup(meter),freq));
+highShelfPlusMeter(freq,gain,dry) = (dry :high_shelf(gain:highShelfGroup(meter),freq));
 
 powlim(x,base) = x:max(log(MAX_flt)/log(base)):  min(log(MIN_flt)/log(base));
 
@@ -134,6 +137,8 @@ hold =
 feedBackLim(x) = (feedBackLimDetect:meter:db2linear*x)~_;
 
 feedBackLimLowShelf(x) = (feedBackLimDetectHold(lowShelfGroup):((_,x):lowShelfPlusMeter(lowShelfGroup(freq))))~_;
+feedBackLimHighShelf(x) = (feedBackLimDetectHold(highShelfGroup):((_,x):highShelfPlusMeter(highShelfGroup(freq))))~_;
+feedBackLimLowHighShelf(x) = (feedBackLimDetectHold(lowShelfGroup):((_,(x:feedBackLimHighShelf)):lowShelfPlusMeter(lowShelfGroup(freq))))~_;
 
 rateLimiter(maxRateAttack,maxRateDecay,prevx,x) = prevx+newtangent:min(0):max(maxGR)
 with {
