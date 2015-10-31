@@ -11,7 +11,7 @@
 
 Based on blushcomp mono by Sampo Savolainen
  */
-declare name      "CharacterCompressor";
+declare name      "lowShelfComp";
 declare author    "Bart Brouns";
 declare version   "0.2";
 declare copyright "(C) 2015 Bart Brouns";
@@ -26,6 +26,10 @@ import ("./compressor-basics.dsp");
 //should be proportional to SR
 // the size of a par() needs to be known at compile time, so (SR/100) doesn't work
 rmsMaxSize = 441; //441
+maxHoldTime = 0.3*44100; //sec
+
+MAX_flt = fconstant(int LDBL_MAX, <float.h>);
+MIN_flt = fconstant(int LDBL_MIN, <float.h>);
 
 drywet        = hslider("[0]dry-wet[tooltip: ]", 1.0, 0.0, 1.0, 0.1);
 ingain        = hslider("[1] Input Gain [unit:dB]   [tooltip: The input signal level is increased by this amount (in dB) to make up for the level lost due to compression]",0, -40, 40, 0.1) : db2linear : smooth(0.999);
@@ -40,30 +44,90 @@ feedFwBw     = hslider("[8]feedback/feedforward[tooltip: ]", 0, 0, 1 , 0.001);
 freq  = hslider("[9]low shelf freq[tooltip: ]",134, 1,   400,   1);
 
 meter = _<:(_, ((hbargraph("[10][unit:dB][tooltip: input level in dB]", -60, 0)))):attach;
+holdMeter = _<:(_, ((_/(holdTime:max(0.0001))):min(1):max(0):hbargraph("[11]hold percentage", 0, 1))):attach;
 
+
+maxRateAttack  = hslider("[11]max attack[unit:dB/s][tooltip: ]", 1020, 6, 8000 , 1)/SR;
+maxRateDecay   = hslider("[12]max decay[unit:dB/s][tooltip: ]", 3813, 6, 8000 , 1)/SR;
+holdTime       = hslider("[9]hold time[unit:seconds][tooltip: ]",0.1, 0,   1,  0.001)*maxHoldTime;
+
+powerScale(x) =((x>=0)*(1/((x+1):pow(3))))+((x<0)* (((x*-1)+1):pow(3)));
+
+power          = hslider("[11]power[tooltip: ]", 1.881 , -33, 33 , 0.001):powerScale;
 mult  = hslider("[11]mult[tooltip: ]",1, 1,   400,   1);
 /*COMP = detector:maxGRshaper:(_-maxGR)*(1/(1-maxGR)): curve_pow(curve):tanshape(shape):_*(1-maxGR):_+maxGR:linear2db*/
 /*<: _,( rateLimiter(maxRateAttack,maxRateDecay) ~ _ ):crossfade(ratelimit) : db2linear;//:( rateLimiter(maxRate) ~ _ );*/
 
 /*process(x) = (_,x):lowShelfPlusMeter;*/
 
-process(x,y) = lowShelfComp(x),lowShelfComp(y);
+/*process(x,y) = lowShelfComp(x),lowShelfComp(y);*/
+process(x,y) = feedBackLimLowShelf(x),feedBackLimLowShelf(y);
 
-/*lowShelfPlusMeter(gain,dry) = gain*dry;*/
-lowShelfPlusMeter(gain,dry) = (dry :low_shelf(gain:meter,freq));
+/*process = */
+/*feedBackLimDetectHold;*/
 
-/*lowShelfComp(x,y) = ( ((crossfade(feedFwBw,x,_)) : detector):(_,(x:low_shelf(freq))))~_;*/
-/*lowShelfComp(x,y) = ( ((crossfade(feedFwBw,x,_)) : detector))~_;*/
-/*lowShelfComp(x,y) = ( (x:low_shelf(((crossfade(feedFwBw,x,_)) : detector),freq)))~_;*/
-/*lowShelfComp(x,y) =    x:low_shelf(((crossfade(feedFwBw,x,y)) : detector),freq);*/
 lowShelfComp(x) =             (((crossfade(feedFwBw,x,_)) : detector):((_,x):lowShelfPlusMeter))~_;
-/*lowShelfComp(x) =             (((crossfade(feedFwBw,x,_)) : detector))~_;*/
-/*lowShelfComp(x) = (x:low_shelf(((crossfade(feedFwBw,x,_)) : detector),freq))~_;*/
-/*lowShelfComp(x) = (x:low_shelf ((crossfade(feedFwBw,x,_) : detector),freq))~_;*/
 
-detector = DETECTOR : rmsFade : RATIO * mult   : max(-60) : min(0);
+detector = DETECTOR : rmsFade : RATIO : max(-60) : min(0);
+/*detector = DETECTOR : rmsFade : RATIO : db2linear:min(1):max(MIN_flt)<:_,_:pow(powlim(power)) : linear2db;*/
 
 /*rmsFade =_;*/
 rmsFade = _<:crossfade(peakRMS,_,RMS(rms_speed)); // bypass makes the dsp double as efficient. On silence RMS takes double that (so in my case 7, 13 and 21 %)
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
+
+/*lowShelfPlusMeter(gain,dry) = gain*dry;*/
+
+lowShelfPlusMeter(gain,dry) = (dry :low_shelf(gain:meter,freq));
+
+powlim(x,base) = x:max(log(MAX_flt)/log(base)):  min(log(MIN_flt)/log(base));
+
+feedBackLimDetect(x) = 
+(
+  (
+    ((
+      (((abs(x):linear2db)>threshold)*maxRateAttack*-1)
+      +
+      (((abs(x):linear2db)<threshold)*maxRateDecay)
+    )
+    + _
+    :max(-60):min(0))
+  )~_
+);
+
+feedBackLimDetectHold(x) = (gain,hold)~((_,(_<:_,_)):(cross(2),_)):(_,!)
+with {
+level =
+(abs(x):linear2db);
+gain =
+(
+  (
+      ((level>threshold)*maxRateAttack*-1)
+      +
+      ((level<threshold)*(_>holdTime)*maxRateDecay)
+    )
+    + _
+    :max(-60):min(0)
+);
+hold = 
+  select2((level>threshold),(_+1),0): min(maxHoldTime): holdMeter;
+};
+
+
+feedBackLim(x) = (feedBackLimDetect:meter:db2linear*x)~_;
+
+feedBackLimLowShelf(x) = (feedBackLimDetectHold:((_,x):lowShelfPlusMeter))~_;
+
+rateLimiter(maxRateAttack,maxRateDecay,prevx,x) = prevx+newtangent:min(0):max(maxGR)
+with {
+    tangent     = x- prevx;
+    avgChange   = abs((tangent@1)-(tangent@2)):integrate(IM_size);
+    newtangent  = select2(tangent>0,minus,plus):max(maxRateAttack*-1):min(maxRateDecay);
+    plus        = tangent*((abs(avgChange)*-1):db2linear);
+    minus       = tangent;//*((abs(avgChange)*0.5):db2linear);
+       //select2(abs(tangent)>maxRate,tangent,maxRate);
+	integrate(size,x) = delaysum(size, x)/size;
+    
+    delaysum(size) = _ <: par(i,rmsMaxSize, @(i)*(i<size)) :> _;
+    };
+

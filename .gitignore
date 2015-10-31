@@ -10,6 +10,6 @@
 *.1.temp-svg
 *.2.temp-svg
 *.*~
-LazyLimiter
-LazyLimiter-svg
-LazyLimiter.lv2
+lowShelfComp
+lowShelfComp-svg
+lowShelfComp.lv2
