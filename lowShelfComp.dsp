@@ -19,6 +19,7 @@ declare copyright "(C) 2015 Bart Brouns";
 import ("math.lib");
 import ("music.lib");
 import ("filter.lib");
+import ("effect.lib");
 
 import ("./compressor-basics.dsp");
 
@@ -31,6 +32,7 @@ maxHoldTime = 1*44100; //sec
 MAX_flt = fconstant(int LDBL_MAX, <float.h>);
 MIN_flt = fconstant(int LDBL_MIN, <float.h>);
 
+limitGroup(x) = (vgroup("[0]",x));
 main_group(x)  = (hgroup("[1]", x));
 lowShelfGroup(x)  = main_group(vgroup("[1]", x));
 highShelfGroup(x)  = main_group(vgroup("[2]", x));
@@ -42,7 +44,7 @@ rms_speed     = hslider("[3]RMS size[tooltip: ]",96, 1,   rmsMaxSize,   1)*44100
 //threshold     = hslider("[4] Threshold [unit:dB]   [tooltip: When the signal level exceeds the Threshold (in dB), its level is compressed according to the Ratio]", -27.1, -80, 0, 0.1);
 ratio         = hslider("[5] Ratio   [tooltip: A compression Ratio of N means that for each N dB increase in input signal level above Threshold, the output level goes up 1 dB]", 20, 1, 20, 0.1);
 attack        = time_ratio_attack(hslider("[6] Attack [unit:ms]   [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new lower target level (the compression `kicking in')]", 23.7, 0.1, 500, 0.1)/1000);
-release       = time_ratio_release(hslider("[7] Release [unit:ms]   [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",0.1, 0.1, 2000, 0.1)/1000);
+/*release       = time_ratio_release(hslider("[7] Release [unit:ms]   [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",0.1, 0.1, 2000, 0.1)/1000);*/
 
 feedFwBw     = hslider("[8]feedback/feedforward[tooltip: ]", 0, 0, 1 , 0.001);
 /*freq  = hslider("[9]low shelf freq[tooltip: ]",134, 1,   400,   1);*/
@@ -68,6 +70,7 @@ maxRateAttack  = (hslider("[1]max attack[unit:dB/s][tooltip: ]", 8000, 6, 8000 ,
 holdTime       = (hslider("[2]hold time[unit:seconds][tooltip: ]",0.3, 0,   1,  0.001)*maxHoldTime);
 minRateDecay   = (hslider("[3]min decay[unit:dB/s][tooltip: ]", 0, 0, 1000 , 1)/SR);
 maxRateDecay   = (hslider("[4]max decay[unit:dB/s][tooltip: ]", 200, 1, 2000 , 1)/SR);
+release        = (hslider("[2] Release [unit:ms]   [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",0.001, 0.001, 2, 0.001));
 power          = (hslider("[5]power[tooltip: ]", 0 , -11, 11 , 0.001):powerScale);
 freq  = (hslider("[6]shelf freq[tooltip: ]",134, 1,   400,   1));
 xOverFreq  = (hslider("[7]sidechain x-over freq[tooltip: ]",134, 1,   400,   1));
@@ -80,8 +83,10 @@ xOverFreq  = (hslider("[7]sidechain x-over freq[tooltip: ]",134, 1,   400,   1))
 /*process(x,y) = lowShelfComp(x),lowShelfComp(y);*/
 /*process(x,y) = feedBackLimLowShelf(x),feedBackLimLowShelf(y);*/
 /*process(x,y) = feedBackLimHighShelf(x),feedBackLimHighShelf(y);*/
-process(x,y) = feedBackLimLowHighShelf(x),feedBackLimLowHighShelf(y);
+/*process(x,y) = feedBackLimLowHighShelf(x),feedBackLimLowHighShelf(y);*/
+/*process =*/
 
+/*process(x) = (((feedBackLimDetectHold(highShelfGroup):highShelfGroup(meter):db2linear)*x)~highpass(1,highShelfGroup(xOverFreq)));*/
 /*process = */
 /*feedBackLimDetectHold;*/
 
@@ -140,6 +145,44 @@ feedBackLim(x) = (feedBackLimDetect:meter:db2linear*x)~_;
 feedBackLimLowShelf(x) = (feedBackLimDetectHold(lowShelfGroup):((_,x):lowShelfPlusMeter(lowShelfGroup(freq))))~lowpass(1,lowShelfGroup(xOverFreq));
 feedBackLimHighShelf(x) = (feedBackLimDetectHold(highShelfGroup):((_,x):highShelfPlusMeter(highShelfGroup(freq))))~highpass(1,highShelfGroup(xOverFreq));
 feedBackLimLowHighShelf(x) = (feedBackLimDetectHold(lowShelfGroup):((_,(x)):lowShelfPlusMeter(lowShelfGroup(freq))):feedBackLimHighShelf)~lowpass(1,lowShelfGroup(xOverFreq));
+feedBackLimLowShelfFull(x) =
+  (
+    feedBackLimDetectHold(lowShelfGroup):((_,(x)):lowShelfPlusMeter(lowShelfGroup(freq)))
+    :(
+      ((feedBackLimDetectHold(highShelfGroup):highShelfGroup(meter):db2linear)*_)
+      :(_<:((((amp_follower(release):linear2db:max(_-limitGroup(threshold),0.0))*-1):limitGroup(meter):db2linear)*_))
+    )~highpass(1,highShelfGroup(xOverFreq))
+  )
+  ~lowpass(1,lowShelfGroup(xOverFreq));
+
+feedBackLimLowHighShelfFull(x) =
+
+  (
+    (feedBackLimDetectHold(lowShelfGroup):((_,(x)):lowShelfPlusMeter(lowShelfGroup(freq))))
+    :(
+      (
+        ((feedBackLimDetectHold(highShelfGroup),_):highShelfPlusMeter(highShelfGroup(freq)))
+        :(_<:((((amp_follower(release):linear2db:max(_-limitGroup(threshold),0.0))*-1):limitGroup(meter):db2linear)*_))
+      )
+    )~highpass(1,highShelfGroup(xOverFreq))
+  )
+  ~lowpass(1,lowShelfGroup(xOverFreq));
+/*process(x) = */
+/*(*/
+      /*(*/
+        /*((feedBackLimDetectHold(highShelfGroup),_):highShelfPlusMeter(highShelfGroup(freq)))*/
+        /*:(_<:((((amp_follower(release):linear2db:max(_-limitGroup(threshold),0.0))*-1):limitGroup(meter):db2linear)*_))*/
+      /*)*/
+    /*)~highpass(1,highShelfGroup(xOverFreq))*/
+    /*;*/
+process(x,y) = feedBackLimLowHighShelfFull(x),feedBackLimLowHighShelfFull(y);
+/*feedBackLimLowHighShelfFull(x) =*/
+  /*(*/
+    /*feedBackLimDetectHold(lowShelfGroup):((_,(x)):lowShelfPlusMeter(lowShelfGroup(freq)))*/
+    /*:(((feedBackLimDetectHold(highShelfGroup):((_,(x)):highShelfPlusMeter(highShelfGroup(freq))))~highpass(1,highShelfGroup(xOverFreq))))*/
+    /*:(amp_follower(release):linear2db:max(_-limitGroup(threshold),0.0)*-1*_)*/
+  /*)*/
+  /*~lowpass(1,lowShelfGroup(xOverFreq));*/
 
 rateLimiter(maxRateAttack,maxRateDecay,prevx,x) = prevx+newtangent:min(0):max(maxGR)
 with {
