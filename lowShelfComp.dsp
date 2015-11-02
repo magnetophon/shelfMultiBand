@@ -39,11 +39,7 @@ freq              = (hslider("[6]shelf freq[tooltip: ]",115, 1,   400,   1));
 xOverFreq         = (hslider("[7]sidechain x-over freq[tooltip: ]",115, 1,   400,   1));
 channelLink       = (hslider("[8]channel link[tooltip: ]",1, 0,   1,   0.001));
 
-/*process = limLowHighShelfFull;*/
-/*process = stereoLim;*/
-/*process = stereoFeedBackLimLowHighShelfFull;*/
 process = NchanFeedBackLimLowHighShelfFull(4);
-/*process = feedBackLimLowHighShelfFull,feedBackLimLowHighShelfFull;*/
 /*process = feedBackLimLowShelfFull,feedBackLimLowShelfFull;*/
 /*process = feedBackLimLowHighShelf, feedBackLimLowHighShelf;*/
 
@@ -55,67 +51,35 @@ feedBackLimLowShelfFull =
   )
   ~lowpass(1,lowShelfGroup(xOverFreq));
 
-feedBackLimLowHighShelfFull =(((_<:(highpass(1,highShelfGroup(xOverFreq)),lowpass(1,lowShelfGroup(xOverFreq)))),_): limLowHighShelfFull)~_;
+NchanFeedBackLimLowHighShelfFull(1) =
+  (((_<:(highpass(1,highShelfGroup(xOverFreq)),lowpass(1,lowShelfGroup(xOverFreq)))),_): ((_,(lowShelfLim)):(highShelfLim:fullRangeLim)))~_;
 
 NchanFeedBackLimLowHighShelfFull(N) =
   (
-    ((par(i,N,_<:bus2):interleave(2,N):(par(i,N,highpass(1,highShelfGroup(xOverFreq))),par(i,N,lowpass(1,lowShelfGroup(xOverFreq))))),(bus(N))):
-    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfLim)):(highShelfLim))):NchanLim
+    ((par(i,N,_<:bus2):interleave(2,N):(par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)),par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup)))),(bus(N))):
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanLim
   )~bus(N)
     with {
       selfMaxXfade(N) =
-        par(i,N*2,abs)<:(bus(N*2),maximum):interleave(2*N,2)
+        bus(N*2)<:(bus(N*2),maximum):interleave(2*N,2)
         :(par(i,N,(crossfade(highShelfGroup(channelLink)))),par(i,N,(crossfade(lowShelfGroup(channelLink)))))
         with {
-          maximum = bus(N*2)<:par(i,2,seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),max))<:bus(N));
+          maximum = bus(N*2)<:par(i,2,seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),min))<:bus(N));
         };
-      NchanLim= bus(N)<:(chanLink(N),bus(N)):interleave(N,2):par(i,N,SCfullRangeLim) ;
-      chanLink(N) = par(i,N,abs)<:(bus(N),maximum):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))))
+      NchanLim= bus(N)<:(chanLink(N),bus(N)):interleave(N,2):par(i,N,gainPlusMeter) ;
+      chanLink(N) = par(i,N,gainReduction)<:(bus(N),maximum):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))))
         with {
-          maximum = bus(N)<:seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),max))<:bus(N);
+          maximum = bus(N)<:seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),min))<:bus(N);
         };
     };
-
-
-/*stereoFeedBackLimLowHighShelfFull = */
-/*(*/
-  /*((par(i,2,_<:bus2):interleave(2,2):(par(i,2,highpass(1,highShelfGroup(xOverFreq))),par(i,2,lowpass(1,lowShelfGroup(xOverFreq)))):selfMaxXfade(2)),bus(2))*/
-  /*:interleave(2,3):par(i,2,limLowHighShelfFull)*/
-/*)~(bus2);*/
-
-/*selfMaxXfade(N) = bus(N*2)<:(bus(N*2),maximum):interleave(N*2,2):(par(i,N,(crossfade(highShelfGroup(channelLink)))),par(i,N,(crossfade(lowShelfGroup(channelLink)))))*/
-/*with {*/
-  /*maximum = par(i,N*2,abs)<:par(i,2,seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),max))<:bus(N));*/
-/*};*/
-
-/*limLowHighShelfFull =*/
-  /*(*/
-    /*(_,(lowShelfLim))*/
-    /*:*/
-    /*(highShelfLim:fullRangeLim)*/
-  /*);*/
-
-
-limLowHighShelfFull =
-  (
-    (_,(lowShelfLim))
-    :
-    (highShelfLim:fullRangeLim)
-  );
-/*stereoFeedBackLimLowHighShelfFull = (((_<:bus(2)),bus(2)):interleave(2,2):(limLowHighShelfFull,limLowHighShelfFull))~(max);*/
-
-/*limLowHighShelfFull =*/
-  /*((_<:(_,_)),_):*/
-  /*(*/
-    /*(_,((lowpass(1,lowShelfGroup(xOverFreq)),_):lowShelfLim))*/
-    /*:*/
-    /*((highpass(1,highShelfGroup(xOverFreq)),_): highShelfLim:fullRangeLim)*/
-  /*);*/
 
 lowShelfLim = ((feedBackLimDetectHold(lowShelfGroup),_):(lowShelfPlusMeter(lowShelfGroup(freq))));
 highShelfLim = ((feedBackLimDetectHold(highShelfGroup),_):highShelfPlusMeter(highShelfGroup(freq)));
 fullRangeLim = (_<:SCfullRangeLim);
-SCfullRangeLim = ((((amp_follower(limitGroup(release)):linear2db:max(_-limitGroup(threshold),0.0))*-1):limitGroup(meter):db2linear)*_);
+SCfullRangeLim = ((gainReduction,_):gainPlusMeter);
+gainReduction = ((amp_follower(limitGroup(release)):linear2db:max(_-limitGroup(threshold),0.0))*-1);
+gainPlusMeter = ((limitGroup(meter):db2linear))*_;
+/*SCfullRangeLim = ((((amp_follower(limitGroup(release)):linear2db:max(_-limitGroup(threshold),0.0))*-1):limitGroup(meter):db2linear)*_);*/
 
 feedBackLimDetectHold(group,x) = (gain,hold)~((_,(_<:_,_))):(_,!)
   with {
@@ -128,8 +92,7 @@ feedBackLimDetectHold(group,x) = (gain,hold)~((_,(_<:_,_))):(_,!)
         +
         ((level<group(threshold))*crossfade(holdPercentage(h),group(minRateDecay),group(maxRateDecay)))
     )
-      + g
-      :max(-60):min(0)
+    + g :max(-60):min(0)
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold = 
