@@ -19,6 +19,7 @@ declare copyright "(C) 2015 Bart Brouns";
 import ("effect.lib");
 
 maxHoldTime = 1*44100; //sec
+maxGR = -40;
 
 mainGroup(x)      = (vgroup("[1]", x));
 shelfGroup(x)     = mainGroup(hgroup("[0]", x));
@@ -27,19 +28,25 @@ lowShelfGroup(x)  = shelfGroup(vgroup("[2]low shelf", x));
 highShelfGroup(x) = shelfGroup(vgroup("[3]high shelf", x));
 limitGroup(x)     = shelfGroup(vgroup("[4] full range",x));
 //                =
-meter             = _<:(_, ((hbargraph("[-1]gain reduction[unit:dB][tooltip: input level in dB]", -40, 0)))):attach;
-holdMeter(group)  = _<:(_, ((_/(group(holdTime):max(0.0001))):min(1):max(0):group(hbargraph("[-1]hold percentage", 0, 1)))):attach;
-threshold         = (hslider("[0]threshold [unit:dB]   [tooltip: When the signal level exceeds the Threshold (in dB), its level is compressed according to the Ratio]", -11, -40, 0, 0.1));
+meter             = _<:(_, ((hbargraph("[-1]gain reduction[unit:dB][tooltip: input level in dB]", maxGR, 0)))):attach;
+holdMeter(group)  = _<:(_, (min(1):max(0):group(hbargraph("[-1]hold percentage", 0, 1)))):attach;
+threshold         = (hslider("[0]threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+inThreshold         = (hslider("[1]in threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+release           = (hslider("[1]release[unit:seconds]   [tooltip: release time in seconds)]",0.001, 0.001, 2, 0.001));
 maxRateAttack     = (hslider("[1]attack[unit:dB/s][tooltip: ]", 3000, 6, 8000 , 1)/SR);
+smoo              = ((hslider("[1]smoo[unit:][tooltip: ]", 0.5, 0, 1 , 0.001)))*10;
 minRateDecay      = (hslider("[2]min release[unit:dB/s][tooltip: ]", 0, 0, 1000 , 1)/SR);
 holdTime          = (hslider("[3]hold time[unit:seconds][tooltip: ]",0.2, 0,   1,  0.001)*maxHoldTime);
 maxRateDecay      = (hslider("[4]max release[unit:dB/s][tooltip: ]", 200, 1, 2000 , 1)/SR);
-release           = (hslider("[1]release[unit:seconds]   [tooltip: release time in seconds)]",0.001, 0.001, 2, 0.001));
 freq              = (hslider("[6]shelf freq[tooltip: ]",115, 1,   400,   1));
 xOverFreq         = (hslider("[7]sidechain x-over freq[tooltip: ]",115, 1,   400,   1));
+outThreshold         = (hslider("[6]out threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+FBthreshold         = (hslider("[7]feedback threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+lowFBthreshold         = (hslider("[6]low feedback threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+highFBthreshold         = (hslider("[7]high feedback threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
 channelLink       = (hslider("[8]channel link[tooltip: ]",1, 0,   1,   0.001));
 
-process = NchanFeedBackLimLowHighShelfFull(4);
+process = NchanFeedBackLimLowHighShelfFull(2);
 /*process = feedBackLimLowShelfFull,feedBackLimLowShelfFull;*/
 /*process = feedBackLimLowHighShelf, feedBackLimLowHighShelf;*/
 
@@ -56,9 +63,11 @@ NchanFeedBackLimLowHighShelfFull(1) =
 
 NchanFeedBackLimLowHighShelfFull(N) =
   (
-    ((par(i,N,_<:bus2):interleave(2,N):(par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)),par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup)))),(bus(N))):
-    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanLim
-  )~bus(N)
+    ((par(i,N,_<:bus2):interleave(2,N)
+    :((NchanClipper(limitGroup(highFBthreshold)):par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)))
+    ,(NchanClipper(limitGroup(lowFBthreshold)):par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq)))))
+  )~bus(N):NchanFBlim
     with {
       selfMaxXfade(N) =
         bus(N*2)<:(bus(N*2),maximum):interleave(2*N,2)
@@ -71,6 +80,12 @@ NchanFeedBackLimLowHighShelfFull(N) =
         with {
           maximum = bus(N)<:seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),min))<:bus(N);
         };
+      NchanFBlim= bus(N)<:(FBgr(N),bus(N)):interleave(N,2):par(i,N,gainPlusMeter) ;
+      FBgr(N) =  par(i,N,hardFeedBackLimDetectHold(limitGroup))<:(bus(N),maximum):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))))
+        with {
+          maximum = bus(N)<:seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),min))<:bus(N);
+        };
+      NchanClipper(tres) = par(i,N,min(tres:db2linear):max(tres:db2linear*-1));
     };
 
 lowShelfLim = ((feedBackLimDetectHold(lowShelfGroup),_):(lowShelfPlusMeter(lowShelfGroup(freq))));
@@ -90,13 +105,27 @@ feedBackLimDetectHold(group,x) = (gain,hold)~((_,(_<:_,_))):(_,!)
     (
         ((level>group(threshold))*group(maxRateAttack)*-1)
         +
-        ((level<group(threshold))*crossfade(holdPercentage(h),group(minRateDecay),group(maxRateDecay)))
+        ((level<group(threshold))*crossfade(holdPercentage(h): holdMeter(group),group(minRateDecay),group(maxRateDecay)))
     )
-    + g :max(-60):min(0)
+    + g :max(maxGR):min(0)
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold = 
-    select2((level>group(threshold)),(_+1),0): min(group(maxHoldTime)): holdMeter(group);
+    select2((level>group(threshold)),(_+1),0): min(group(maxHoldTime));
+  };
+
+hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave(2,2)):(_,!)
+  with {
+  level =
+    (abs(x):linear2db);
+  gain(g,h) =
+  (
+    ((level<group(threshold))*crossfade(holdPercentage(h): holdMeter(group),group(minRateDecay),group(maxRateDecay)))
+    + g :min(x:((abs:linear2db:max(_-limitGroup(threshold),0.0))*-1)):max(maxGR):min(0)
+  );
+  holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
+  hold(g,h) = 
+    h<:select2((level>group(threshold)),(_+1),0): (-(g:pow(3)*0.05*limitGroup(smoo)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
