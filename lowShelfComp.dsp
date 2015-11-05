@@ -40,10 +40,11 @@ holdTime          = (hslider("[3]fade time[unit:seconds][tooltip: time to fade f
 maxRateDecay      = (hslider("[4]max release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 200, 1, 2000 , 1)/SR);
 freq              = (hslider("[6]shelf freq[unit:Herz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
 xOverFreq         = (hslider("[7]sidechain x-over freq[unit:Herz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
+keepSpeed           = (hslider("[6]keepSpeed[tooltip: keep some of the 'release min/max' value, instead of a full reset to 0]",1, 0,   1,   0.001));
+prePost           = (hslider("[7]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limiters]",1, 0,   1,   0.001));
 lowFBthreshold    = 999;//(hslider("[6]low feedback threshold [unit:dB]   [tooltip:threshold of a clipper in the FB path of the low shelf limiter]", -11, maxGR, 0, 0.1));
 highFBthreshold   = 999;// (hslider("[7]high feedback threshold [unit:dB]   [tooltip:threshold of a clipper in the FB path of the high shelf limiter]", -11, maxGR, 0, 0.1));
 channelLink       = (hslider("[8]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
-prePost           = (hslider("[9]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limmiters]",1, 0,   1,   0.001));
 /*N               = 4;*/
 /*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/
 /*process         = bus(2*N)<:(bus(N),par(i,N,!),par(i,N,!),bus(N));*/
@@ -123,7 +124,7 @@ hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold(g,h) = 
-    h<:select2((level>group(threshold)),(_+1),0): (+(g:pow(4)*limitGroup(FastTransient)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.01))): (+(g:pow(4)*limitGroup(FastTransient)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
