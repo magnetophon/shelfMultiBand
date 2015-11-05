@@ -43,10 +43,13 @@ xOverFreq         = (hslider("[7]sidechain x-over freq[unit:Herz][tooltip: corne
 lowFBthreshold    = (hslider("[6]low feedback threshold [unit:dB]   [tooltip:threshold of a clipper in the FB path of the low shelf limiter]", -11, maxGR, 0, 0.1));
 highFBthreshold   = (hslider("[7]high feedback threshold [unit:dB]   [tooltip:threshold of a clipper in the FB path of the high shelf limiter]", -11, maxGR, 0, 0.1));
 channelLink       = (hslider("[8]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
-
-process = NchanFeedBackLimLowHighShelfFull(2);
-/*process = feedBackLimLowShelfFull,feedBackLimLowShelfFull;*/
-/*process = feedBackLimLowHighShelf, feedBackLimLowHighShelf;*/
+prePost           = (hslider("[9]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limmiters]",1, 0,   1,   0.001));
+/*N               = 4;*/
+/*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/
+/*process         = bus(2*N)<:(bus(N),par(i,N,!),par(i,N,!),bus(N));*/
+process           = NchanFeedBackLimLowHighShelfFull(2);
+/*process         = feedBackLimLowShelfFull,feedBackLimLowShelfFull;*/
+/*process         = feedBackLimLowHighShelf, feedBackLimLowHighShelf;*/
 
 feedBackLimLowShelf     = lowShelfLim~lowpass(1,lowShelfGroup(xOverFreq));
 feedBackLimHighShelf    = highShelfLim~highpass(1,highShelfGroup(xOverFreq));
@@ -61,8 +64,8 @@ NchanFeedBackLimLowHighShelfFull(N) =
     ((par(i,N,_<:bus2):interleave(2,N)
     :((NchanClipper(limitGroup(highFBthreshold)):par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)))
     ,(NchanClipper(limitGroup(lowFBthreshold)):par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
-    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlim
-  )~bus(N)
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre
+  )~(par(i,N,!),bus(N)):NchanFBlimPost
     with {
       selfMaxXfade(1) = bus(2);
       selfMaxXfade(N) =
@@ -72,6 +75,10 @@ NchanFeedBackLimLowHighShelfFull(N) =
           minimum(N) = bus(N*2)<:par(i,2,seq(j,(log(N)/log(2)),par(k,N/(2:pow(j+1)),min))<:bus(N));
         };
       NchanFBlim= bus(N)<:(FBgr(N),bus(N)):interleave(N,2):par(i,N,gainPlusMeter) ;
+      NchanFBlimPre= (bus(N)<:((FBgr(N):par(i,N,limitGroup(meter))),bus(N)))
+        :((bus(N)<:((bus(N),par(i,N,_*((limitGroup(prePost)*-1)+1))))),bus(N))
+        :(bus(N),(interleave(N,2):par(i,N,db2linear*_)));
+      NchanFBlimPost= (par(i,N,_*limitGroup(prePost)),bus(N)):interleave(N,2):par(i,N,db2linear*_);
       FBgr(1) =  hardFeedBackLimDetectHold(limitGroup);
       FBgr(N) =  par(i,N,hardFeedBackLimDetectHold(limitGroup))<:(bus(N),minimum(N)):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))))
         with {
@@ -116,7 +123,7 @@ hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold(g,h) = 
-    h<:select2((level>group(threshold)),(_+1),0): (+(g:pow(4)*0.2*limitGroup(FastTransient)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    h<:select2((level>group(threshold)),(_+1),0): (+(g:pow(4)*limitGroup(FastTransient)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
