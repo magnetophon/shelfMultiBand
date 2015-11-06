@@ -126,7 +126,7 @@ hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold(g,h) = 
-    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+((g+1)*limitGroup(FastTransient:pow(.5)):pow(4)*8*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+((g+1)*limitGroup(FastTransient:pow(.5))*10:pow(4)/limitGroup((FastTransient+0.001):pow(.1))*group(holdTime)/maxHoldTime/128)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
