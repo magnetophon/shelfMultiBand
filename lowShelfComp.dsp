@@ -13,7 +13,7 @@ Based on blushcomp mono by Sampo Savolainen
  */
 declare name      "lowShelfComp";
 declare author    "Bart Brouns";
-declare version   "0.3";
+declare version   "0.4";
 declare copyright "(C) 2015 Bart Brouns";
 
 import ("effect.lib");
