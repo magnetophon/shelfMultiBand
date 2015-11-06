@@ -29,7 +29,7 @@ limitGroup(x)     = shelfGroup(vgroup("[4] full range",x));
 GRgroup(x)        = vgroup("[-1][tooltip: gain reduction in dB]gain reduction",x);
 HoldGroup(x)      = vgroup("[-2][tooltip: fade from min to max release rate]release min/max",x);
 //                =
-meter             = _<:(_, max(maxGR):GRgroup((hbargraph("[1][unit:dB][tooltip: gain reduction in dB]", maxGR, 0)))):attach;
+meter             = _<:(_, (max(maxGR):GRgroup((hbargraph("[1][unit:dB][tooltip: gain reduction in dB]", maxGR, 0))))):attach;
 holdMeter(group)  = _<:(_, (min(1):max(0):group(HoldGroup(hbargraph("[2][tooltip: fade from min to max release rate]", 0, 1))))):attach;
 //                =
 threshold         = (hslider("[0]threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
@@ -126,7 +126,7 @@ hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave
   );
   holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold(g,h) = 
-    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+(g:pow(4)*limitGroup(FastTransient:pow(2))*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
