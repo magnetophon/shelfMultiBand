@@ -18,7 +18,8 @@ declare copyright "(C) 2015 Bart Brouns";
 
 import ("effect.lib");
 
-maxHoldTime = 1*44100; //sec
+sr = 44100;
+maxHoldTime = 1*sr; //sec
 maxGR = -40;
 
 mainGroup(x)      = (vgroup("[1]", x));
@@ -32,23 +33,29 @@ HoldGroup(x)      = vgroup("[-2][tooltip: fade from min to max release rate]rele
 meter             = _<:(_, (max(maxGR):GRgroup((hbargraph("[1][unit:dB][tooltip: gain reduction in dB]", maxGR, 0))))):attach;
 holdMeter(group)  = _<:(_, (min(1):max(0):group(HoldGroup(hbargraph("[2][tooltip: fade from min to max release rate]", 0, 1))))):attach;
 //                =
-threshold         = (hslider("[0]threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
-ratio             = (hslider("[1]ratio[tooltip: 0 is 1:1 and 1 is 1:inf]",1, 0,   1,   0.001));
-release           = (hslider("[2]release[unit:seconds]   [tooltip: release time in seconds)]",0.001, 0.001, 2, 0.001));
-maxRateAttack     = (hslider("[2]attack rate[unit:dB/s][tooltip: attack rate in dB/s ]", 3000, 6, 8000 , 1)/SR);
-FastTransient     = (hslider("[2]fast transient[unit:][tooltip: more GR means quicker release rate]", 0.5, 0, 1 , 0.001):pow(3));
-minRateDecay      = (hslider("[3]min release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 0, 0, 1000 , 1)/SR);
-holdTime          = (hslider("[4]fade time[unit:seconds][tooltip: time to fade from min to max release, in sec. ]",0.2, 0,   1,  0.001)*maxHoldTime);
-maxRateDecay      = (hslider("[5]max release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 200, 1, 2000 , 1)/SR);
-freq              = (hslider("[7]shelf freq[unit:Herz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
-xOverFreq         = (hslider("[8]sidechain x-over freq[unit:Herz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
-keepSpeed         = (hslider("[7]keepSpeed[tooltip: keep some of the 'release min/max' value, instead of a full reset to 0]",1, 0,   1,   0.001));
-prePost           = (hslider("[8]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limiters]",1, 0,   1,   0.001));
-channelLink       = (hslider("[9]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
+threshold         = (hslider("[00]threshold [unit:dB]   [tooltip:]", -11, maxGR, 0, 0.1));
+ratio             = (hslider("[01]ratio[tooltip: 0 is 1:1 and 1 is 1:inf]",1, 0,   1,   0.001));
+release           = (hslider("[02]release[unit:seconds]   [tooltip: release time in seconds)]",0.001, 0.001, 2, 0.001));
+maxRateAttack     = (hslider("[02]attack rate[unit:dB/s][tooltip: attack rate in dB/s ]", 3000, 6, 8000 , 1)/SR);
+FastTransient     = (hslider("[02]fast transient[unit:][tooltip: more GR means quicker release rate]", 0.5, 0, 1 , 0.001):pow(3));
+minRateDecay      = (hslider("[03]min release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 0, 0, 1000 , 1)/SR);
+holdTime          = (hslider("[04]fade time[unit:seconds][tooltip: time to fade from min to max release, in sec. ]",0.2, 0,   1,  0.001)*maxHoldTime);
+maxRateDecay      = (hslider("[05]max release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 200, 1, 2000 , 1)/SR);
+freq              = (hslider("[07]shelf freq[unit:Herz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
+xOverFreq         = (hslider("[08]sidechain x-over freq[unit:Herz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
+keepSpeed         = (hslider("[07]keepSpeed[tooltip: keep some of the 'release min/max' value, instead of a full reset to 0]",1, 0,   1,   0.001));
+prePost           = (hslider("[08]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limiters]",1, 0,   1,   0.001))*prePostEnabled;
+channelLink       = (hslider("[09]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
+highKeep          = (hslider("[10]high keep[tooltip: the amount of high frequencies to be kept]",1, 0,   1,   0.001));
+highKeepFreq      = (hslider("[11]high keep frequency[tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
 /*N               = 4;*/
 /*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/
 /*process         = bus(2*N)<:(bus(N),par(i,N,!),par(i,N,!),bus(N));*/
 process           = NchanFeedBackLimLowHighShelfFull(2);
+prePostEnabled = 1;
+// process           = NchanFeedBackLimFull(2);
+// process = high_shelf(highKeep,highKeepFreq);
+// process = highKeeper;
 // process = minimum(6);
 /*process         = feedBackLimLowShelfFull,feedBackLimLowShelfFull;*/
 /*process         = feedBackLimLowHighShelf, feedBackLimLowHighShelf;*/
@@ -61,25 +68,51 @@ feedBackLimLowShelfFull =
   )
   ~lowpass(1,lowShelfGroup(xOverFreq));
 
+NchanFeedBackLimFull(N) = NchanFBlim(N);
+
+selfMaxXfade(1) = bus(2);
+selfMaxXfade(N) =
+  bus(N*2)<:(bus(N*2),par(i,2,(minimum(N)<:bus(N)))):interleave(2*N,2)
+  :(par(i,N,(crossfade(highShelfGroup(channelLink)))),par(i,N,(crossfade(lowShelfGroup(channelLink)))));
+
+NchanFBlim(N)= (bus(N)<:((FBgr(N):par(i,N,limitGroup(meter))),bus(N)))
+:(interleave(N,2):par(i,N,(db2linear*_)));
+
+NchanFBlimPre(N)= (bus(N)<:((FBgr(N):par(i,N,limitGroup(meter))),bus(N)))
+  :((bus(N)<:((bus(N),par(i,N,_*((limitGroup(prePost)*-1)+1))))),bus(N))
+  :(bus(N),(interleave(N,2):par(i,N,db2linear*_)));
+NchanFBlimPost(N)= (par(i,N,_*limitGroup(prePost)),bus(N)):interleave(N,2):par(i,N,db2linear*_);
+FBgr(1) =  hardFeedBackLimDetectHold(limitGroup);
+FBgr(N) =  par(i,N,hardFeedBackLimDetectHold(limitGroup))<:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))));
+
+// NchanFeedBackLimLowShelf(N) =
+//   (
+//     (
+//     (
+//     ,(par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
+//     (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre(N)
+//   )~(par(i,N,!),bus(N)):NchanFBlimPost(N)
+//     with {
+//     };
+
+NchanFeedBackLimHighShelf(N) =
+  (
+    ((par(i,N,_<:bus2):interleave(2,N)
+    :((par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)))
+    ,(par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre(N)
+  )~(par(i,N,!),bus(N)):NchanFBlimPost(N)
+    with {
+    };
+
 NchanFeedBackLimLowHighShelfFull(N) =
   (
     ((par(i,N,_<:bus2):interleave(2,N)
     :((par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)))
     ,(par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
-    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre
-  )~(par(i,N,!),bus(N)):NchanFBlimPost
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfGroup(highKeeper):highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre(N)
+  )~(par(i,N,!),bus(N)):NchanFBlimPost(N)
     with {
-      selfMaxXfade(1) = bus(2);
-      selfMaxXfade(N) =
-        bus(N*2)<:(bus(N*2),par(i,2,(minimum(N)<:bus(N)))):interleave(2*N,2)
-        :(par(i,N,(crossfade(highShelfGroup(channelLink)))),par(i,N,(crossfade(lowShelfGroup(channelLink)))));
-      NchanFBlim= bus(N)<:(FBgr(N),bus(N)):interleave(N,2):par(i,N,gainPlusMeter) ;
-      NchanFBlimPre= (bus(N)<:((FBgr(N):par(i,N,limitGroup(meter))),bus(N)))
-        :((bus(N)<:((bus(N),par(i,N,_*((limitGroup(prePost)*-1)+1))))),bus(N))
-        :(bus(N),(interleave(N,2):par(i,N,db2linear*_)));
-      NchanFBlimPost= (par(i,N,_*limitGroup(prePost)),bus(N)):interleave(N,2):par(i,N,db2linear*_);
-      FBgr(1) =  hardFeedBackLimDetectHold(limitGroup);
-      FBgr(N) =  par(i,N,hardFeedBackLimDetectHold(limitGroup))<:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(limitGroup(channelLink))));
     };
 
 minimum(1) = _;
@@ -92,6 +125,10 @@ fullRangeLim     = (_<:SCfullRangeLim);
 SCfullRangeLim   = ((gainReduction,_):gainPlusMeter);
 gainReduction    = ((amp_follower(limitGroup(release)):linear2db:max(_-limitGroup(threshold),0.0))*-1);
 gainPlusMeter    = ((limitGroup(meter):db2linear))*_;
+
+highKeeper(gain,x) =
+// gain,(((gain*-1*highKeep),x):high_shelf(highKeepFreq));
+gain,(x:high_shelf((gain*-1*highKeep),highKeepFreq));
 
 feedBackLimDetectHold(group,x) = (gain,hold)~((_,(_<:_,_))):(_*group(ratio),!)
   with {
