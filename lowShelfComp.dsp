@@ -48,6 +48,9 @@ prePost           = (hslider("[08]pre/post[tooltip: amount of GR beiong done ins
 channelLink       = (hslider("[09]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
 highKeep          = (hslider("[10]high keep[tooltip: the amount of high frequencies to be kept]",1, 0,   1,   0.001));
 highKeepFreq      = (hslider("[11]high keep frequency[tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
+subKeep          = (hslider("[10]sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
+subKeepFreq      = (hslider("[11]sub keep frequency[tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
+/*N               = 4;*/
 /*N               = 4;*/
 /*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/
 /*process         = bus(2*N)<:(bus(N),par(i,N,!),par(i,N,!),bus(N));*/
@@ -110,7 +113,7 @@ NchanFeedBackLimLowHighShelfFull(N) =
     ((par(i,N,_<:bus2):interleave(2,N)
     :((par(i,N,highpass(1,highShelfGroup(xOverFreq)):feedBackLimDetectHold(highShelfGroup)))
     ,(par(i,N,lowpass(1,lowShelfGroup(xOverFreq)):feedBackLimDetectHold(lowShelfGroup))))),(bus(N))):
-    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfGroup(highKeeper):highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre(N)
+    (selfMaxXfade(N),bus(N)):interleave(N,3):par(i,N,((_,(lowShelfGroup(subKeeper):lowShelfPlusMeter(lowShelfGroup(freq)))):(highShelfGroup(highKeeper):highShelfPlusMeter(highShelfGroup(freq))))):NchanFBlimPre(N)
   )~(par(i,N,!),bus(N)):NchanFBlimPost(N)
     with {
     };
@@ -127,8 +130,10 @@ gainReduction    = ((amp_follower(limitGroup(release)):linear2db:max(_-limitGrou
 gainPlusMeter    = ((limitGroup(meter):db2linear))*_;
 
 highKeeper(gain,x) =
-// gain,(((gain*-1*highKeep),x):high_shelf(highKeepFreq));
 gain,(x:high_shelf((gain*-1*highKeep),highKeepFreq));
+
+subKeeper(gain,x) =
+gain,(x:low_shelf((((gain+6):min(0))*-1*subKeep:min(20)),subKeepFreq));
 
 feedBackLimDetectHold(group,x) = (gain,hold)~((_,(_<:_,_))):(_*group(ratio),!)
   with {
