@@ -39,17 +39,17 @@ release           = (hslider("[02]release[unit:seconds]   [tooltip: release time
 maxRateAttack     = (hslider("[02]attack rate[unit:dB/s][tooltip: attack rate in dB/s ]", 3000, 6, 8000 , 1)/SR);
 FastTransient     = (hslider("[02]fast transient[unit:][tooltip: more GR means quicker release rate]", 0.5, 0, 1 , 0.001):pow(3));
 minRateDecay      = (hslider("[03]min release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 0, 0, 1000 , 1)/SR);
-holdTime          = (hslider("[04]fade time[unit:seconds][tooltip: time to fade from min to max release, in sec. ]",0.2, 0,   1,  0.001)*maxHoldTime);
+holdTime          = (hslider("[04]fade time[unit:seconds][tooltip: time to fade from min to max release, in sec. ]",0.2, 0,   1,  0.001)*maxHoldTime)+1;
 maxRateDecay      = (hslider("[05]max release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 200, 1, 2000 , 1)/SR);
-freq              = (hslider("[07]shelf freq[unit:Herz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
-xOverFreq         = (hslider("[08]sidechain x-over freq[unit:Herz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
+freq              = (hslider("[07]shelf freq[unit:Hz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
+xOverFreq         = (hslider("[08]sidechain x-over freq[unit:Hz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
 keepSpeed         = (hslider("[07]keepSpeed[tooltip: keep some of the 'release min/max' value, instead of a full reset to 0]",1, 0,   1,   0.001));
 prePost           = (hslider("[08]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limiters]",1, 0,   1,   0.001))*prePostEnabled;
 channelLink       = (hslider("[09]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
 highKeep          = (hslider("[10]high keep[tooltip: the amount of high frequencies to be kept]",1, 0,   1,   0.001));
-highKeepFreq      = (hslider("[11]high keep frequency[tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
+highKeepFreq      = (hslider("[11]high keep frequency[unit:Hz][tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
 subKeep          = (hslider("[10]sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
-subKeepFreq      = (hslider("[11]sub keep frequency[tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
+subKeepFreq      = (hslider("[11]sub keep frequency[unit:Hz][tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
 /*N               = 4;*/
 /*N               = 4;*/
 /*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/
@@ -162,9 +162,15 @@ hardFeedBackLimDetectHold(group,x) = (gain,hold)~(((_<:_,_),(_<:_,_)):interleave
     ((level<group(threshold))*crossfade(holdPercentage(h): holdMeter(group),group(minRateDecay),group(maxRateDecay)))
     + g :min(x:((abs:linear2db:max(_-limitGroup(threshold),0.0))*-1)):max(2*maxGR):min(0)
   );
-  holdPercentage(h) = (h/(group(holdTime):max(0.0001))):min(1):max(0);
+  holdPercentage(h) =
+      (group(threshold)-level):max(0)*group(FastTransient):min(1):group(lag_ud((holdTime-1)/(maxHoldTime),keepSpeed));
+  // (h/(group(holdTime):max(0.0001))):min(1):max(0);
   hold(g,h) =
-    select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    select2((level>group(threshold)),(h*(1: (+((group(threshold)-level):abs*0.01*limitGroup(FastTransient)*maxHoldTime/group(holdTime)):max(1)))),h-limitGroup((keepSpeed*-1+1)*128*(maxHoldTime/(holdTime-1)))):min(group(holdTime)):max(1);
+    // select2((level>group(threshold)),(h+1: (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*maxHoldTime/group(holdTime)))),h-limitGroup((keepSpeed*-1+1)*128*(maxHoldTime/(holdTime-1)))):min(group(holdTime)):max(0);
+    // select2((level>group(threshold)),(h+1: (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*group(holdTime)/maxHoldTime))),h-limitGroup((keepSpeed*-1+1)*80)):min(group(holdTime)):max(0);
+    // select2((level>group(threshold)),(h+1),h-limitGroup((keepSpeed*-1+1)*80)): (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
+    // select2((level>group(threshold)),(h+1),h*limitGroup(keepSpeed:pow(0.02))): (+(g*.25:pow(4)*limitGroup(FastTransient:pow(.5)*8)*group(holdTime)/maxHoldTime)):min(group(holdTime)):max(0);
   };
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
