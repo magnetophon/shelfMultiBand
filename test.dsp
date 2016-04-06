@@ -3,7 +3,11 @@ declare license "GPLv3";
 
 import("effect.lib");
 
-process = compressor_N_chan_demo(2);
+// process = compressor_N_chan_demo(2);
+N=2;
+FBFF = 0.5;
+process =
+FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,0.5,meter,2);
 
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
@@ -56,10 +60,28 @@ compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
     minimum(N) = (minimum(N-1),_):min;
   };
 
-compressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
+// feed forward compressor
+FFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
   (bus(N) <:
   (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N)))
   :(interleave(N,2):par(i,N,meter*_));
+
+// feed back compressor
+FBcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
+  (
+  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N))
+  :(interleave(N,2):par(i,N,meter*_))
+  )~bus(N);
+
+// feed back compressor
+FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N) =
+  bus(N) <:
+  ((bus(2*N)
+  ((interleave(N,2):par(i, N, crossfade(FBFF)))<:(
+  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N)))))
+  :(interleave(N,2):par(i,N,meter*_))
+  )~bus(N)
+  ;
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
 
@@ -81,7 +103,9 @@ crossfade_bypass(bpc,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
 };
 
 compressor_N_chan_demo(N) =
-  bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain))) with {
+  bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)))
+;
+// with {
 
     comp_group(x) = vgroup("COMPRESSOR  [tooltip: Reference: http://en.wikipedia.org/wiki/Dynamic_range_compression]", x);
 
@@ -132,4 +156,4 @@ compressor_N_chan_demo(N) =
     makeupgain = comp_group(hslider("[5] Makeup Gain [unit:dB]
       [tooltip: The compressed-signal output level is increased by this amount (in dB) to make up for the level lost due to compression]",
       0, 0, maxGR*-1, 0.1)) : db2linear;
-};
+// };
