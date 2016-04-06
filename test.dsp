@@ -4,10 +4,8 @@ declare license "GPLv3";
 import("effect.lib");
 
 // process = compressor_N_chan_demo(2);
-N=2;
-FBFF = 0.5;
 process =
-FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,0.5,meter,2);
+FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
@@ -77,8 +75,8 @@ FBcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
 FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N) =
   bus(N) <:
   ((bus(2*N)
-  ((interleave(N,2):par(i, N, crossfade(FBFF)))<:(
-  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N)))))
+  (interleave(N,2):par(i, N, crossfade(FBFF)))<:(
+  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N))))
   :(interleave(N,2):par(i,N,meter*_))
   )~bus(N)
   ;
@@ -151,6 +149,10 @@ compressor_N_chan_demo(N) =
 
     link = env_group(hslider("[3] link [style:knob]
       [tooltip: 0 means all channels get individual gain reduction, 1 means they all get the same gain reduction]",
+      1, 0, 1, 0.01));
+
+    FBFF = env_group(hslider("[3] feed-back/forward [style:knob]
+      [tooltip: fade between a feedback and a feed forward compressor design]",
       1, 0, 1, 0.01));
 
     makeupgain = comp_group(hslider("[5] Makeup Gain [unit:dB]
