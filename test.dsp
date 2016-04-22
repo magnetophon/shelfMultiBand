@@ -3,26 +3,26 @@ declare license "GPLv3";
 
 // import("/home/bart/Downloads/fst.rms.dsp");
 import("effect.lib");
-import("/home/bart/faust/CharacterCompressor/rms.dsp");
+// import("/home/bart/faust/CharacterCompressor/rms.dsp");
 
 process =
 // FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,5);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-// peakRMS_FBFFcompressor_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,FBFF,meter,2);
+peakRMS_FBFFcompressor_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,FBFF,meter,2);
 // YannRMS(rmsMaxSize):meter;
  // blockDelaysum(rmsMaxSize,rmsMaxSize):meter;
- pow(_,2):(blockDelaysum(s,blockSize)/((floor(s/blockSize)+1)*blockSize)):sqrt:meter;
- s = int(RMStime*sr);
- nrBlocks = 32;
- blockSize = int(rmsMaxSize/nrBlocks);
+ // pow(_,2):(blockDelaysum(s,blockSize)/((floor(s/blockSize)+1)*blockSize)):sqrt:meter;
+ nrBlocks = int(rmsMaxSize/blockSize);
+ blockSize = 256;
  // blockDelaysum(int(rmsMaxSize/4),int(RMStime*sr)):meter;
 
 sr = 44100;
 RMStime = vslider("time [unit:ms] [style: knob] [scale:log]", 150, 1, (rmsMaxSize/sr)*1000, 1)/1000;
 // rmsMaxSize = 1024;
+// rmsMaxSize = 32;
 rmsMaxSize = 2:pow(16);
-// rmsMaxSize = 2:pow(10);
+// rmsMaxSize = 2:pow(12);
 
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear;
@@ -67,11 +67,24 @@ add = (hslider("add", 0, 0, 0.1, 0.01)*.1)+1.27;
 // RMSar(att,rel) = pow(2) : lag_ud(att,rel) : sqrt;
 
 RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  abs : bypass(prePost,RMSar(att,rel)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,_*-1:RMSar(att,rel)*-1) : db2linear;
+  RMS(RMStime): bypass(prePost,lag_ud(a,r)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(r,a)) : db2linear
+  with {
+  // lag = lag_ud(a,r);
+  // a = (att-min(att,rel)):max(0);
+  // r = (rel-min(att,rel)):max(0);
+  // a = select2(att>rel,0,att);
+  // r = select2(att>rel,rel,0);
+  a = att;
+  r = rel;
+  };
+  // abs : bypass(prePost,RMSar(att,rel)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,_*-1:RMSar(att,rel)*-1) : db2linear;
 
-delaysum(size) = _ <: par(i,rmsMaxSize, @(i)*(i<size)) :> _;
+delaysum(size,MaxSize) = _ <: par(i,MaxSize, @(i)*(i<size)) :> _;
 
-blockDelaysum(size,block) = _ <: par(i,int(rmsMaxSize/block), integrate(block)@(int(i*block))*(i<(size/block))) :> _;
+blockDelaysum(size,block) = _ <: variable,par(i,int(rmsMaxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
+  // variable = delaysum(size:min(block),block);
+  variable = @(floor(size/block)*block):delaysum(int(decimal(size/block)*block),block);
+};
 mean(n,x)      = x - x @ n : + ~ _ : /(n);
 integrate(n,x) = x - x @ n : + ~ _ ;
 YannRMS(size,x) = compute ~ (_,_,_) : (!,!,_)
@@ -82,6 +95,11 @@ YannRMS(size,x) = compute ~ (_,_,_) : (!,!,_)
             if(count<size, val, sqrt(acc/size));      // new val
         if (c, then, else) = select2(c, else, then);
     };
+
+RMS(time) = pow(_,2):(blockDelaysum(s,blockSize)/s):sqrt with {
+ s = int(time*sr):max(1);
+};
+
 // calculate the maximum gain reduction of N channels,
 // and then crossfade between that and each channel's own gain reduction,
 // to link/unlink channels
