@@ -3,31 +3,34 @@ declare license "GPLv3";
 
 // import("/home/bart/Downloads/fst.rms.dsp");
 import("effect.lib");
+import("/home/bart/faust/CharacterCompressor/rms.dsp");
 
-// process = compressor_N_chan_demo(2);
-peakG(x) = hgroup("peak", x);
-rmsG(x) = hgroup("rms", x);
 process =
-peakRMS_FBFFcompressor_N_chan(strength,threshold,thresholdRMS,attack,release,releaseRMS,knee,prePost,link,FBFF,meter,2);
-
-// bus(2)<:(
-// (   peakG(FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2):(par(i, 2, _*cbp)))),
-// (rmsG(RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2):(par(i, 2, _*((cbp*-1))))))
-// ):>bus(2);
+// FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,5);
+// FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
+// RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
+// peakRMS_FBFFcompressor_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,FBFF,meter,2);
+// YannRMS(rmsMaxSize):meter;
+ // blockDelaysum(rmsMaxSize,rmsMaxSize):meter;
+ pow(_,2):(blockDelaysum(s,blockSize)/((floor(s/blockSize)+1)*blockSize)):sqrt:meter;
+ s = int(RMStime*sr);
+ nrBlocks = 32;
+ blockSize = int(rmsMaxSize/nrBlocks);
+ // blockDelaysum(int(rmsMaxSize/4),int(RMStime*sr)):meter;
 
 sr = 44100;
 RMStime = vslider("time [unit:ms] [style: knob] [scale:log]", 150, 1, (rmsMaxSize/sr)*1000, 1)/1000;
-rmsMaxSize = 2:pow(12);
+// rmsMaxSize = 1024;
+rmsMaxSize = 2:pow(16);
+// rmsMaxSize = 2:pow(10);
 
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear
-  abs:bypass(prePost,lag_ud(att,rel)) : linear2db : gain_computer(strength,thresh,knee):bypass((prePost*-1)+1,lag_ud(rel,att)) : db2linear
-with {
+  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear;
+  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear;
+  abs:bypass(prePost,lag_ud(att,rel)) : linear2db : gain_computer(strength,thresh,knee):bypass((prePost*-1)+1,lag_ud(rel,att)) : db2linear;
 // my_compression_gain_mono(strength,thresh,att,rel,knee) has a more traditional knee parameter than
 // compression_gain_mono(ratio,thresh,att,rel), which also has an internal parameter called knee,
-// but that is a time-smoothing of the gain-reduction
+// but that is a time-smoothing of the gain-reduction.
 // This knee is a gradual increase in gain reduction around the threshold:
 // Below thresh-(knee/2) there is no gain reduction,
 // above thresh+(knee/2) there is the same gain reduction as without a knee,
@@ -47,67 +50,38 @@ with {
 // function as a hard limiter.
 // For that you'd need a ratio of infinity:1, and you cannot express that in faust
 
+// Sometimes even bigger ratios are usefull:
+// For example a group recording where one instrument is recorded with both a close microphone and a room microphone,
+// and the instrument is loud enough in the room mic when playing loud, but you want to boost it when it is playing soft.
+
   gain_computer(strength,thresh,knee,level) =
     select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
       0,
       ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
       (level-thresh)
     ) : max(0)*-strength;
-};
 
-RMS(att,rel) = pow(2) : lag_ud(att,rel) : sqrt;
+RMSar(att,rel) = abs:pow(power) : lag_ud(((add+att):pow(power))-add,rel/power) : pow(1/power);
+power = hslider("power", 1, 1, 10, 0.01):pow(2);
+add = (hslider("add", 0, 0, 0.1, 0.01)*.1)+1.27;
+// RMSar(att,rel) = pow(2) : lag_ud(att,rel) : sqrt;
 
 RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear
-  abs : bypass(prePost,RMS(att,rel)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,_*-1:RMS(att,rel)*-1) : db2linear
-  // RMS(RMStime) : linear2db : gain_computer(strength,thresh,knee) : db2linear
-with {
-  gain_computer(strength,thresh,knee,level) =
-    select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
-      0,
-      ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
-      (level-thresh)
-    ) : max(0)*-strength;
-};
+  abs : bypass(prePost,RMSar(att,rel)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,_*-1:RMSar(att,rel)*-1) : db2linear;
 
-OLDpeakRMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear
-  abs:bypass(prePost,lag_ud(att,rel)) : linear2db :bypass((prePost*-1)+1,lag_ud(att,rel))<:(
-  peakG(gain_computer(strength,thresh,knee)),
-  rmsG(gain_computer(strength,thresh,knee): _*-1:RMS(att,rel):_*-1)
-  ):min :db2linear
-  // RMS(RMStime) : linear2db : gain_computer(strength,thresh,knee) : db2linear
-with {
- crest= vslider("crest", 0, -20, 20, 0.1);
-  gain_computer(strength,thresh,knee,level) =
-    select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
-      0,
-      ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
-      (level-thresh)
-    ) : max(0)*-strength;
-};
+delaysum(size) = _ <: par(i,rmsMaxSize, @(i)*(i<size)) :> _;
 
-peakRMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  // amp_follower_ar(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear
-  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear
-  abs:bypass(prePost,lag_ud(att,rel)) : linear2db :bypass((prePost*-1)+1,lag_ud(att,rel))<:(
-  peakG(gain_computer(strength,thresh,knee)),
-  rmsG(gain_computer(strength,thresh,knee): _*-1:RMS(att,rel):_*-1)
-  ):min :db2linear;
-  // RMS(RMStime) : linear2db : gain_computer(strength,thresh,knee) : db2linear
-
-  gain_computer(strength,thresh,knee,level) =
-    select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
-      0,
-      ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
-      (level-thresh)
-    ) : max(0)*-strength;
-
+blockDelaysum(size,block) = _ <: par(i,int(rmsMaxSize/block), integrate(block)@(int(i*block))*(i<(size/block))) :> _;
+mean(n,x)      = x - x @ n : + ~ _ : /(n);
+integrate(n,x) = x - x @ n : + ~ _ ;
+YannRMS(size,x) = compute ~ (_,_,_) : (!,!,_)
+    with {
+        compute (acc, count, val) =
+            if(count<size, acc+x*x, x*x),             // new acc
+            if(count<size, count+1, 1),               // new count
+            if(count<size, val, sqrt(acc/size));      // new val
+        if (c, then, else) = select2(c, else, then);
+    };
 // calculate the maximum gain reduction of N channels,
 // and then crossfade between that and each channel's own gain reduction,
 // to link/unlink channels
@@ -116,24 +90,18 @@ compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
 
 compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
  par(i, N, my_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
- <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)))
- with {
-    minimum(1) = _;
-    minimum(2) = min;
-    minimum(N) = (minimum(N-1),_):min;
-  };
+ <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
+
+minimum(1) = _;
+minimum(2) = min;
+minimum(N) = (minimum(N-1),_):min;
 
 RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
   RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost);
 
 RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
  par(i, N, RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
- <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)))
- with {
-    minimum(1) = _;
-    minimum(2) = min;
-    minimum(N) = (minimum(N-1),_):min;
-  };
+ <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
 
 // feed forward compressor
 FFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
@@ -152,7 +120,7 @@ FBcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
 FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N) =
   bus(N) <: bus(N*2):
   (((
-  (interleave(N,2):par(i, N, crossfade(FBFF)):compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N))
+  (par(i, 2, compression_gain_N_chan(strength*(1+((i==0)*2)),thresh,att,rel,knee,prePost,link,N)):interleave(N,2):par(i, N, crossfade(FBFF)))
   ,bus(N))
   :(interleave(N,2):par(i,N,meter*_))
   )~bus(N));
@@ -168,11 +136,11 @@ RMS_FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N
 
 
 
-// RMS feed back and/or forward compressor
-peakRMS_FBFFcompressor_N_chan(strength,thresh,thresRMS,att,rel,relRMS,knee,prePost,link,FBFF,meter,N) =
+// peak feed forward and RMS feed back compressor
+peakRMS_FBFFcompressor_N_chan(strength,thresh,threshLim,att,rel,knee,prePost,link,FBFF,meter,N) =
   bus(N) <: bus(N*2):
   (((
-  ((RMS_compression_gain_N_chan(strength,thresRMS,att,rel,6+knee,1,link,N),compression_gain_N_chan(strength,thresh,0,att,knee,prePost,link,N)):(interleave(N,2):par(i,N,min)))
+  ((RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),compression_gain_N_chan(1,threshLim,0,att:min(release),knee*0.5,0,link,N)):(interleave(N,2):par(i,N,min)))
   ,bus(N))
   :(interleave(N,2):par(i,N,meter*_))
   )~bus(N));
@@ -197,9 +165,7 @@ crossfade_bypass(bpc,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
 };
 
 compressor_N_chan_demo(N) =
-  bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)))
-;
-// with {
+  bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)));
 
     comp_group(x) = vgroup("COMPRESSOR  [tooltip: Reference: http://en.wikipedia.org/wiki/Dynamic_range_compression]", x);
 
@@ -218,7 +184,7 @@ compressor_N_chan_demo(N) =
 
     strength = ctl_group(hslider("[0] Strength [style:knob]
       [tooltip: A compression Strength of 0 means no gain reduction and 1 means full gain reduction]",
-      1, 0, 1, 0.01));
+      1, 0, 8, 0.01));
 
     threshold = ctl_group(hslider("[1] Threshold [unit:dB] [style:knob]
       [tooltip: When the signal level exceeds the Threshold (in dB), its level is compressed according to the Strength]",
@@ -259,7 +225,14 @@ compressor_N_chan_demo(N) =
       [tooltip: fade between a feedback and a feed forward compressor design]",
       1, 0, 1, 0.01));
 
-    makeupgain = comp_group(hslider("[5] Makeup Gain [unit:dB]
+    lim_group(x)  = knob_group(hgroup("[5] Limiter [tooltip: It's release time is the minimum of the attack and release of the compressor,
+      and it's knee is half that of the compressor]", x));
+
+    thresholdLim = lim_group(hslider("[9] Threshold [unit:dB] [style:knob]
+      [tooltip: The signal leveli never exceeds this threshold]",
+      0, -30, 10, 0.1));
+
+    makeupgain = comp_group(hslider("[6] Makeup Gain [unit:dB]
       [tooltip: The compressed-signal output level is increased by this amount (in dB) to make up for the level lost due to compression]",
       0, 0, maxGR*-1, 0.1)) : db2linear;
 // };
