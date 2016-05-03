@@ -1,30 +1,24 @@
 declare author "Bart Brouns";
 declare license "GPLv3";
 
-// import("/home/bart/Downloads/fst.rms.dsp");
 import("effect.lib");
-// import("/home/bart/faust/CharacterCompressor/rms.dsp");
 
 process =
-// FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,5);
+FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,meter,2);
+// RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,meter,2);
 
- nrBlocks = int(rmsMaxSize/blockSize);
+ // nrBlocks = int(rmsMaxSize/blockSize);
  // blockSize = 64;
  blockSize = 256;
- // blockDelaysum(int(rmsMaxSize/4),int(RMStime*sr)):meter;
 
 sr = 44100;
 RMStime = vslider("time [unit:ms] [style: knob] [scale:log]", 150, 1, (rmsMaxSize/sr)*1000, 1)/1000;
-// rmsMaxSize = 1024;
+// rmsMaxSize = 1024; // for block diagram
 rmsMaxSize = 2:pow(16);
-// rmsMaxSize = 2:pow(12);
 
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  // abs:lag_ud(att,rel) : linear2db : GR(strength,thresh,knee) : db2linear;
-  // abs : linear2db : GR(strength,thresh,knee):lag_ud(rel,att) : db2linear;
   abs:bypass(prePost,lag_ud(att,rel)) : linear2db : gain_computer(strength,thresh,knee):bypass((prePost*-1)+1,lag_ud(rel,att)) : db2linear;
 // my_compression_gain_mono(strength,thresh,att,rel,knee) has a more traditional knee parameter than
 // compression_gain_mono(ratio,thresh,att,rel), which also has an internal parameter called knee,
@@ -52,105 +46,104 @@ my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
 // For example a group recording where one instrument is recorded with both a close microphone and a room microphone,
 // and the instrument is loud enough in the room mic when playing loud, but you want to boost it when it is playing soft.
 
-  gain_computer(strength,thresh,knee,level) =
-    select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
-      0,
-      ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
-      (level-thresh)
-    ) : max(0)*-strength;
-
-RMSar(att,rel) = abs:pow(power) : lag_ud(((add+att):pow(power))-add,rel/power) : pow(1/power);
-power = hslider("power", 1, 1, 10, 0.01):pow(2);
-add = (hslider("add", 0, 0, 0.1, 0.01)*.1)+1.27;
-// RMSar(att,rel) = pow(2) : lag_ud(att,rel) : sqrt;
+gain_computer(strength,thresh,knee,level) =
+  select3((level>(thresh-(knee/2)))+(level>(thresh+(knee/2))),
+    0,
+    ((level-thresh+(knee/2)):pow(2)/(2*knee)) ,
+    (level-thresh)
+  ) : max(0)*-strength;
 
 RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  RMS(r): bypass(prePost,lag_ud(a,0)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(0,a)) : db2linear
-  with {
-  // lag = lag_ud(a,r);
-  // a = (att-min(att,rel)):max(0);
-  // r = (rel-min(att,rel)):max(0);
-  // a = select2(att>rel,0,att);
-  // r = select2(att>rel,rel,0);
-  a = att;
-  r = rel;
-  };
-  // abs : bypass(prePost,RMSar(att,rel)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,_*-1:RMSar(att,rel)*-1) : db2linear;
+  RMS(rel): bypass(prePost,lag_ud(att,0)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(0,att)) : db2linear;
 
-delaysum(size,MaxSize) = _ <: par(i,MaxSize, @(i)*(i<size)) :> _;
+// add together the last size values:
+delaysum(size,maxSize) = _ <: par(i,maxSize, @(i)*(i<size)) :> _;
 
-blockDelaysum(size,block) = _ <: variable,par(i,int(rmsMaxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
-  variable = _ <: par(i,int(rmsMaxSize/block), delaysum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
-  // variable = @(floor(size/block)*block):delaysum(int(decimal(size/block)*block),block);
-};
-mean(n,x)      = x - x @ n : + ~ _ : /(n);
-// integrate(n,x) = x:delaysumFixed(n);
-integrate(n,x) = x - x @ n : + ~ _ ;  // is hardly more efficient in this context: 23% vs 30% CPU
-delaysumFixed(size) = _ <: par(i,size, @(i)) :> _;
-YannRMS(size,x) = compute ~ (_,_,_) : (!,!,_)
-    with {
-        compute (acc, count, val) =
-            if(count<size, acc+x*x, x*x),             // new acc
-            if(count<size, count+1, 1),               // new count
-            if(count<size, val, sqrt(acc/size));      // new val
-        if (c, then, else) = select2(c, else, then);
-    };
-
-RMS(time) = pow(_,2):(blockDelaysum(s,blockSize)/s):sqrt with {
- s = int(time*sr):max(1);
+// the same as above, but much less CPU hungry:
+// we devide the time we want to look at into blocks,
+// get the sum of the first block, and add it to delayed versions of itself.
+// each delay is a multiple of the block size long.
+// we switch the blocks on and off depending on the size we want to look at
+// finaly, we add a variable block that represents the values that are not covered by the whole blocks.
+blockDelaysum(size,block,maxSize) = _ <: variable,par(i,int(maxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
+  variable = _ <: par(i,int(maxSize/block), delaysum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
+  // integrate(n,x) = x:delaysumFixed(n);
+  integrate(n,x) = x - x @ n : + ~ _ ;  // is a bit more efficient: 23% vs 30% CPU
+  delaysumFixed(size) = _ <: par(i,size, @(i)) :> _;
 };
 
-// calculate the maximum gain reduction of N channels,
-// and then crossfade between that and each channel's own gain reduction,
-// to link/unlink channels
+RMS(time) = pow(_,2):(blockDelaysum(s,blockSize,rmsMaxSize)/s):sqrt with {
+  s = int(time*sr):max(1);
+};
+
+// generalise compression gains for N channels.
+// first we define a mono version:
 compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
   my_compression_gain_mono(strength,thresh,att,rel,knee,prePost);
 
+// the actual N-channel version:
+// calculate the maximum gain reduction of N channels,
+// and then crossfade between that and each channel's own gain reduction,
+// to link/unlink channels
 compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
- par(i, N, my_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
- <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
+  par(i, N, my_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
+  <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
 
 minimum(1) = _;
 minimum(2) = min;
 minimum(N) = (minimum(N-1),_):min;
 
+// an RMS versions of the above
 RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
   RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost);
 
 RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
- par(i, N, RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
- <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
+  par(i, N, RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
+  <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
 
 // feed forward compressor
 FFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
   (bus(N) <:
-  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N)))
+    (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N))
+  )
   :(interleave(N,2):par(i,N,meter*_));
 
 // feed back compressor
 FBcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,meter,N) =
   (
-  (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N))
-  :(interleave(N,2):par(i,N,meter*_))
+    (compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),bus(N))
+    :(interleave(N,2):par(i,N,meter*_))
   )~bus(N);
 
 // feed back and/or forward compressor
+// the feedback part has a much higher strength, so they end up sounding similar
 FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N) =
   bus(N) <: bus(N*2):
-  (((
-  (par(i, 2, compression_gain_N_chan(strength*(1+((i==0)*2)),thresh,att,rel,knee,prePost,link,N)):interleave(N,2):par(i, N, crossfade(FBFF)))
-  ,bus(N))
-  :(interleave(N,2):par(i,N,meter*_))
-  )~bus(N));
+  (
+    ((
+      (par(i, 2, compression_gain_N_chan(strength*(1+((i==0)*2)),thresh,att,rel,knee,prePost,link,N)):interleave(N,2):par(i, N, crossfade(FBFF)))
+      ,bus(N))
+      :(interleave(N,2):par(i,N,meter*_))
+    )~bus(N)
+  );
 
 // RMS feed back and/or forward compressor
+// to save CPU we cheat a bit, in a similar way as in the original libs:
+// instead of crosfading between two sets of gain calculators as above,
+// we take the abs of the audio from both the FF and FB, and crossfade between those,
+// and feed that into one set of gain calculators
+// again the strength is much higher when in FB mode, but implemented differently
 RMS_FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N) =
   bus(N) <: bus(N*2):
-  (((
-  (interleave(N,2):par(i, N, crossfade(FBFF)):RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N))
-  ,bus(N))
-  :(interleave(N,2):par(i,N,meter*_))
-  )~bus(N));
+  (
+    (
+      (
+        (interleave(N,2):par(i, N*2, abs) :par(i, N, crossfade(FBFF)) : RMS_compression_gain_N_chan(strength*(1+(((prePost*-1)+1)*4)),thresh,att,rel,knee,prePost,link,N))
+        ,bus(N)
+      )
+    :(interleave(N,2):par(i,N,meter*_))
+    )~bus(N)
+  );
 
 
 
@@ -169,23 +162,22 @@ RMS_FBcompressor_peak_limiter_N_chan(strength,thresh,threshLim,att,rel,knee,preP
   )~bus(N);
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
- // compression_gain_N_chan(1,threshLim,0,att:min(rel),knee*0.5,0,link,N)
 
 // bypass switch for any number of channels
-// bpc -> the switch
+// bp -> the switch
 // e -> the expression you want to bypass
 // NOTE: bypass only makes sense when inputs(e) equals outputs(e)
-bypass(bpc,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
+bypass(bp,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
   N = inputs(e);
-  inswitch = bus(N) : par(i, N, select2(bpc,_,0)) : bus(N);
-  outswitch = interleave(N,2) : par(i, N, select2(bpc) ) : bus(N);
+  inswitch =par(i, N, select2(bp,_,0));
+  outswitch = interleave(N,2) : par(i, N, select2(bp) );
 };
 
-// here bpc can be a fader
-crossfade_bypass(bpc,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
+// here bp can be a float between 0 and 1
+crossfade_bypass(bp,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
   N = inputs(e);
-  inswitch = bus(N) : par(i, N, crossfade(bpc,_,0)) : bus(N);
-  outswitch = interleave(N,2) : par(i, N, crossfade(bpc) ) : bus(N);
+  inswitch = par(i, N, crossfade(bp,_,0));
+  outswitch = interleave(N,2) : par(i, N, crossfade(bp) );
 };
 
 compressor_N_chan_demo(N) =
@@ -230,8 +222,6 @@ compressor_N_chan_demo(N) =
     // The actual attack value is 0.1 smaller than the one displayed.
     // This is done for hard limiting:
     // You need 0 attack for that, but a log scale starting at 0 is useless
-    // It can also be 'abused' for greater than infinity ratios:
-    // with strength > 1 the output level goes down when the input is above the threshold
 
     release = env_group(hslider("[2] Release [unit:ms] [style: knob] [scale:log]
       [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",
