@@ -16,3 +16,6 @@ lowShelfComp.lv2
 *.lv2
 /faust.*/
 /*-svg/
+/faustcomp
+/test
+/testFST
