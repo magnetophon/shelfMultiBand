@@ -9,18 +9,16 @@ process =
 // FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,5);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-peakRMS_FBFFcompressor_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,FBFF,meter,2);
-// YannRMS(rmsMaxSize):meter;
- // blockDelaysum(rmsMaxSize,rmsMaxSize):meter;
- // pow(_,2):(blockDelaysum(s,blockSize)/((floor(s/blockSize)+1)*blockSize)):sqrt:meter;
+RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,meter,2);
+
  nrBlocks = int(rmsMaxSize/blockSize);
+ // blockSize = 64;
  blockSize = 256;
  // blockDelaysum(int(rmsMaxSize/4),int(RMStime*sr)):meter;
 
 sr = 44100;
 RMStime = vslider("time [unit:ms] [style: knob] [scale:log]", 150, 1, (rmsMaxSize/sr)*1000, 1)/1000;
 // rmsMaxSize = 1024;
-// rmsMaxSize = 32;
 rmsMaxSize = 2:pow(16);
 // rmsMaxSize = 2:pow(12);
 
@@ -67,7 +65,7 @@ add = (hslider("add", 0, 0, 0.1, 0.01)*.1)+1.27;
 // RMSar(att,rel) = pow(2) : lag_ud(att,rel) : sqrt;
 
 RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
-  RMS(RMStime): bypass(prePost,lag_ud(a,r)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(r,a)) : db2linear
+  RMS(r): bypass(prePost,lag_ud(a,0)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(0,a)) : db2linear
   with {
   // lag = lag_ud(a,r);
   // a = (att-min(att,rel)):max(0);
@@ -82,11 +80,13 @@ RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
 delaysum(size,MaxSize) = _ <: par(i,MaxSize, @(i)*(i<size)) :> _;
 
 blockDelaysum(size,block) = _ <: variable,par(i,int(rmsMaxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
-  // variable = delaysum(size:min(block),block);
-  variable = @(floor(size/block)*block):delaysum(int(decimal(size/block)*block),block);
+  variable = _ <: par(i,int(rmsMaxSize/block), delaysum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
+  // variable = @(floor(size/block)*block):delaysum(int(decimal(size/block)*block),block);
 };
 mean(n,x)      = x - x @ n : + ~ _ : /(n);
-integrate(n,x) = x - x @ n : + ~ _ ;
+// integrate(n,x) = x:delaysumFixed(n);
+integrate(n,x) = x - x @ n : + ~ _ ;  // is hardly more efficient in this context: 23% vs 30% CPU
+delaysumFixed(size) = _ <: par(i,size, @(i)) :> _;
 YannRMS(size,x) = compute ~ (_,_,_) : (!,!,_)
     with {
         compute (acc, count, val) =
@@ -154,16 +154,22 @@ RMS_FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N
 
 
 
-// peak feed forward and RMS feed back compressor
-peakRMS_FBFFcompressor_N_chan(strength,thresh,threshLim,att,rel,knee,prePost,link,FBFF,meter,N) =
-  bus(N) <: bus(N*2):
-  (((
-  ((RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N),compression_gain_N_chan(1,threshLim,0,att:min(release),knee*0.5,0,link,N)):(interleave(N,2):par(i,N,min)))
-  ,bus(N))
-  :(interleave(N,2):par(i,N,meter*_))
-  )~bus(N));
+// RMS feed back compressor into peak limiter feeding back into the FB comp.
+// By combining them this way, they complement each other optimally:
+// The RMS compressor doesn't have to deal with the peaks,
+// and the peak limiter get's spared from the steady state signal.
+RMS_FBcompressor_peak_limiter_N_chan(strength,thresh,threshLim,att,rel,knee,prePost,link,meter,N) =
+  (
+    (
+      (
+        (RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N))
+        ,bus(N)
+      ):(interleave(N,2):par(i,N,meter*_))
+    ):FFcompressor_N_chan(1,threshLim,0,att:min(rel),knee*0.5,0,link,meter,N)
+  )~bus(N);
 
 crossfade(x,a,b) = a*(1-x),b*x : +;
+ // compression_gain_N_chan(1,threshLim,0,att:min(rel),knee*0.5,0,link,N)
 
 // bypass switch for any number of channels
 // bpc -> the switch
