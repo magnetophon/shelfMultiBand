@@ -10,9 +10,15 @@ process =
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
 
+// all benchmarks with a stereo RMS_FBcompressor_peak_limiter_N_chan,
+// rmsMaxSize = 2:pow(16) and compiled with:
+// time faust2jaqt -t 99999999 -time -double -vec test.dsp
 // blockSize = 64; // takes forever to compile
-blockSize = 128;
-// blockSize = 256;
+// blockSize = 128; // compile time  296s, 34% cpu in rt thread
+blockSize = 256; // 161s, 26%
+// blockSize = 512; //239s, 30%
+// blockSize = 1024; // 829s, 50%
+
 
 sr = 44100;
 // rmsMaxSize = 1024; // for block diagram
@@ -20,7 +26,7 @@ rmsMaxSize = 2:pow(16);
 maxRelTime = rmsMaxSize/sr;
 
 // note: lag_ud has a bug where if you compile with standard precision,
-// down is 0 and prePost is 1, you go into infinite GR
+// down is 0 and prePost is 1, you go into infinite GR and stay there
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   abs:bypass(prePost,lag_ud(att,rel)) : linear2db : gain_computer(strength,thresh,knee):bypass((prePost*-1)+1,lag_ud(rel,att)) : db2linear;
 // my_compression_gain_mono(strength,thresh,att,rel,knee) has a more traditional knee parameter than
@@ -150,7 +156,7 @@ RMS_FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N
   (
     (
       (
-        (interleave(N,2):par(i, N*2, abs) :par(i, N, crossfade(FBFF)) : RMS_compression_gain_N_chan(strength*(1+(((prePost*-1)+1)*4)),thresh,att,rel,knee,prePost,link,N))
+        (interleave(N,2):par(i, N*2, abs) :par(i, N, crossfade(FBFF)) : RMS_compression_gain_N_chan(strength*(1+(((FBFF*-1)+1)*1)),thresh,att,rel,knee,prePost,link,N))
         ,bus(N)
       )
     :(interleave(N,2):par(i,N,meter*_))
