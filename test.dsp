@@ -3,21 +3,24 @@ declare license "GPLv3";
 
 import("effect.lib");
 
+// The four most interesting examples:
 process =
-FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
+// FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-// RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,prePost,link,meter,2);
+RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
 
- // nrBlocks = int(rmsMaxSize/blockSize);
- // blockSize = 64;
- blockSize = 256;
+// blockSize = 64; // takes forever to compile
+blockSize = 128;
+// blockSize = 256;
 
 sr = 44100;
-RMStime = vslider("time [unit:ms] [style: knob] [scale:log]", 150, 1, (rmsMaxSize/sr)*1000, 1)/1000;
 // rmsMaxSize = 1024; // for block diagram
 rmsMaxSize = 2:pow(16);
+maxRelTime = rmsMaxSize/sr;
 
+// note: lag_ud has a bug where if you compile with standard precision,
+// down is 0 and prePost is 1, you go into infinite GR
 my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   abs:bypass(prePost,lag_ud(att,rel)) : linear2db : gain_computer(strength,thresh,knee):bypass((prePost*-1)+1,lag_ud(rel,att)) : db2linear;
 // my_compression_gain_mono(strength,thresh,att,rel,knee) has a more traditional knee parameter than
@@ -38,7 +41,7 @@ my_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
 // MICHAEL MASSBERG (michael@massberg.org)
 // AND JOSHUA D. REISS (josh.reiss@eecs.qmul.ac.uk)
 
-// It uses a strength parameter instead of the more traditional ratio, in order to be able to
+// It uses a strength parameter instead of the traditional ratio, in order to be able to
 // function as a hard limiter.
 // For that you'd need a ratio of infinity:1, and you cannot express that in faust
 
@@ -62,14 +65,27 @@ delaysum(size,maxSize) = _ <: par(i,maxSize, @(i)*(i<size)) :> _;
 // the same as above, but much less CPU hungry:
 // we devide the time we want to look at into blocks,
 // get the sum of the first block, and add it to delayed versions of itself.
-// each delay is a multiple of the block size long.
+// each delay is a multiple of the block size.
 // we switch the blocks on and off depending on the size we want to look at
 // finaly, we add a variable block that represents the values that are not covered by the whole blocks.
 blockDelaysum(size,block,maxSize) = _ <: variable,par(i,int(maxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
   variable = _ <: par(i,int(maxSize/block), delaysum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
-  // integrate(n,x) = x:delaysumFixed(n);
-  integrate(n,x) = x - x @ n : + ~ _ ;  // is a bit more efficient: 23% vs 30% CPU
-  delaysumFixed(size) = _ <: par(i,size, @(i)) :> _;
+  integrate(n,x) = x <: par(i,n, @(i)) :> _;
+
+  // This one is a bit more efficient: 23% vs 33% CPU
+  // in stereo RMS_FBcompressor_peak_limiter_N_chan with rmsMaxSize = 2^16
+
+  // integrate(n,x) = x - x @ n : + ~ _ ;
+
+  // Unfortunately, it also has a bug: after some time without gain reduction,
+  // it refuses to go back into gain reduction, even when compiled with -double
+  // This is can be fixed by doing it in fixed point, but that has other downsides.
+  // see https://sourceforge.net/p/faudiostream/mailman/message/24275442/
+
+  // integrate(n,x) = x:float2fix : integrateprt(n) : fix2float;
+  // integrateprt(n,x) = x - x @ n : + ~ _ ;
+  // float2fix(x) = int(x*(1<<20));
+  // fix2float(x) = float(x)/(1<<20);
 };
 
 RMS(time) = pow(_,2):(blockDelaysum(s,blockSize,rmsMaxSize)/s):sqrt with {
@@ -82,16 +98,12 @@ compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
   my_compression_gain_mono(strength,thresh,att,rel,knee,prePost);
 
 // the actual N-channel version:
-// calculate the maximum gain reduction of N channels,
+// Calculate the maximum gain reduction of N channels,
 // and then crossfade between that and each channel's own gain reduction,
 // to link/unlink channels
 compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N) =
   par(i, N, my_compression_gain_mono(strength,thresh,att,rel,knee,prePost))
   <:(bus(N),(minimum(N)<:bus(N))):interleave(N,2):par(i,N,(crossfade(link)));
-
-minimum(1) = _;
-minimum(2) = min;
-minimum(N) = (minimum(N-1),_):min;
 
 // an RMS versions of the above
 RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
@@ -151,11 +163,11 @@ RMS_FBFFcompressor_N_chan(strength,thresh,att,rel,knee,prePost,link,FBFF,meter,N
 // By combining them this way, they complement each other optimally:
 // The RMS compressor doesn't have to deal with the peaks,
 // and the peak limiter get's spared from the steady state signal.
-RMS_FBcompressor_peak_limiter_N_chan(strength,thresh,threshLim,att,rel,knee,prePost,link,meter,N) =
+RMS_FBcompressor_peak_limiter_N_chan(strength,thresh,threshLim,att,rel,knee,link,meter,N) =
   (
     (
       (
-        (RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,N))
+        (RMS_compression_gain_N_chan(strength,thresh,att,rel,knee,0,link,N))
         ,bus(N)
       ):(interleave(N,2):par(i,N,meter*_))
     ):FFcompressor_N_chan(1,threshLim,0,att:min(rel),knee*0.5,0,link,meter,N)
@@ -180,6 +192,11 @@ crossfade_bypass(bp,e) = bus(N) <: ((inswitch:e),bus(N)) : outswitch with {
   outswitch = interleave(N,2) : par(i, N, crossfade(bp) );
 };
 
+// get the minimum of N inputs:
+minimum(1) = _;
+minimum(2) = min;
+minimum(N) = (minimum(N-1),_):min;
+
 compressor_N_chan_demo(N) =
   bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)));
 
@@ -191,8 +208,6 @@ compressor_N_chan_demo(N) =
     checkbox_group(x)  = meter_group(hgroup("[0]", x));
 
     cbp = checkbox_group(checkbox("[0] Bypass  [tooltip: When this is checked, the compressor has no effect]"));
-    prePost = checkbox_group(checkbox("[1] slow/fast  [tooltip: Unchecked: log  domain return-to-threshold detector
-      Checked: linear return-to-zero detector]")*-1)+1;
     maxGR = -100;
     meter = _<:(_, (linear2db:max(maxGR):meter_group((hbargraph("[1][unit:dB][tooltip: gain reduction in dB]", maxGR, 0))))):attach;
 
@@ -225,17 +240,16 @@ compressor_N_chan_demo(N) =
 
     release = env_group(hslider("[2] Release [unit:ms] [style: knob] [scale:log]
       [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",
-      100, 1, 10000, 0.1)) : *(0.001) : max(1/SR);
+      100, 1, maxRelTime*1000, 0.1)) : *(0.001) : max(1/SR);
 
-    releaseRMS = env_group(hslider("[2] Release RMS [unit:ms] [style: knob] [scale:log]
-      [tooltip: Time constant in ms (1/e smoothing time) for the compression gain to approach (exponentially) a new higher target level (the compression 'releasing')]",
-      100, 1, 10000, 0.1)) : *(0.001) : max(1/SR);
+    prePost = env_group(checkbox("[3] slow/fast  [tooltip: Unchecked: log  domain return-to-threshold detector
+      Checked: linear return-to-zero detector]")*-1)+1;
 
-    link = env_group(hslider("[3] link [style:knob]
+    link = env_group(hslider("[4] link [style:knob]
       [tooltip: 0 means all channels get individual gain reduction, 1 means they all get the same gain reduction]",
       1, 0, 1, 0.01));
 
-    FBFF = env_group(hslider("[3] feed-back/forward [style:knob]
+    FBFF = env_group(hslider("[5] feed-back/forward [style:knob]
       [tooltip: fade between a feedback and a feed forward compressor design]",
       1, 0, 1, 0.01));
 
