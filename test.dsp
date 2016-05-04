@@ -8,8 +8,21 @@ process =
 // FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
+// RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
+// binaryBlock(4);
+blocky(9);
 
+blocky(N,x) = binaryBlock(evenN(N),x)+ ((N%2)*x@N);
+// blocky(n,x) = select2((n%2),binaryBlock(n,x),binaryBlock(n-1,x)'+x);
+// count((3,4));
+// par(i, 3, take(i+1,(par(j, 3, i*j)))) ;
+binaryBlock = case {
+(1,x) => x;
+// (N,x) => binaryBlock(N-1,x)'+x;
+(N,x) =>  binaryBlock(N/2,x) + binaryBlock(N/2,x)@(N/2);
+// (N,x) =>  binaryBlock(evenN(N)/2,x) + binaryBlock(evenN(N)/2,x)@(evenN(N)/2) + ((N%2)*x');
+};
+evenN(N) = N-(N%2);
 // all benchmarks with a stereo RMS_FBcompressor_peak_limiter_N_chan,
 // rmsMaxSize = 2:pow(16) and compiled with:
 // time faust2jaqt -t 99999999 -time -double -vec test.dsp
