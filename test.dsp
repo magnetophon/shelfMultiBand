@@ -3,45 +3,15 @@ declare license "GPLv3";
 
 import("effect.lib");
 
+// A library of compressor building blocks, compressors and some general utilities.
 // The four most interesting examples:
+// If wanted I can make demo versions, with tooltips that are more appropriate for each model.
 process =
 // FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
-// binaryBlock(4);
-// binaryBlock(6);
-// par(i, 5, 2<<i);
-// delaysum(8,8);
-// blocky(4);
-// int2bin(theN,maxN);
-// blocky(theN,maxN);
 
-// sumOfPrevDelays(theN,maxN,3);
-
-allDelays(N,maxN) = par(j, floor(log(maxN)/log(2))+1, (1<<j) *  take(j+1,(int2bin(N,maxN))) );
-sumOfPrevDelays(N,maxN,i) = subseq((allDelays(N,maxN)),0,i):>_*(i>0);
-// +  `subseq((10,20,30,40,50,60), 1, 3) -> (20,30,40)`
-
-theN = vslider("N", 4, 1, maxN, 1);
-maxN = 8;
-// par(i, 3, take(i+1,(int2bin(4))));
-
-int2bin(N,maxN) = par(i,floor(log(maxN)/log(2))+1,int(floor(N/(1<<i)))%2);
-
-// blocky(N,x) = par(i, 3, take(i+1,(int2bin(5))));
-blocky(N,maxN,x) = par(i,floor(log(maxN)/log(2))+1,binaryBlock(1<<i,x)@sumOfPrevDelays(N,maxN,i) *take(i+1,(int2bin(N,maxN)))):>_;
-// blocky(N,x) = binaryBlock(evenN(N),x)+ ((N%2)*x@N);
-// blocky(n,x) = select2((n%2),binaryBlock(n,x),binaryBlock(n-1,x)'+x);
-// count((3,4));
-// par(i, 3, take(i+1,(par(j, 3, i*j)))) ;
-binaryBlock = case {
-(1,x) => x;
-// (N,x) => binaryBlock(N-1,x)'+x;
-(N,x) =>  binaryBlock(N/2,x) + binaryBlock(N/2,x)@(N/2);
-// (N,x) =>  binaryBlock(evenN(N)/2,x) + binaryBlock(evenN(N)/2,x)@(evenN(N)/2) + ((N%2)*x');
-};
-evenN(N) = N-(N%2);
 // all benchmarks with a stereo RMS_FBcompressor_peak_limiter_N_chan,
 // rmsMaxSize = 2:pow(16) and compiled with:
 // time faust2jaqt -t 99999999 -time -double -vec test.dsp
@@ -51,11 +21,22 @@ blockSize = 256; // 161s, 26%
 // blockSize = 512; //239s, 30%
 // blockSize = 1024; // 829s, 50%
 
+// binaryBlockDelaySum blows them all out of the water: 7.4%
+// It also compiles quick.
+// Same performance with all compilation options,
+// but needs -double as well, because of lag_ud bug below
 
-sr = 44100;
-// rmsMaxSize = 1024; // for block diagram
-rmsMaxSize = 2:pow(16);
+
+// rmsMaxSize = 1024; // for block diagram of blockDelaySum
+// rmsMaxSize = 8; // for block diagram of binaryBlockDelaySum
+// rmsMaxSize = 2:pow(16); // highest usable for blockDelaySum, used for benchmarking.
+rmsMaxSize = 2:pow(19);  // Nice and long: 11 seconds.
+// binaryBlockDelaySum is practically equally cheap at any size, up to:
+// rmsMaxSize = 2:pow(25);
+// Crashes when ypu go higher, cause 2^25 eats more than half my RAM.
+// To be expected, at 760 seconds of RMS-time!
 maxRelTime = rmsMaxSize/sr;
+sr = 44100;
 
 // note: lag_ud has a bug where if you compile with standard precision,
 // down is 0 and prePost is 1, you go into infinite GR and stay there
@@ -97,40 +78,62 @@ gain_computer(strength,thresh,knee,level) =
 RMS_compression_gain_mono(strength,thresh,att,rel,knee,prePost) =
   RMS(rel): bypass(prePost,lag_ud(att,0)) : linear2db : gain_computer(strength,thresh,knee) : bypass((prePost*-1)+1,lag_ud(0,att)) : db2linear;
 
-// add together the last size values:
-delaysum(size,maxSize) = _ <: par(i,maxSize, @(i)*(i<size)) :> _;
+// add together the last 'size' values:
+delaySum(size,maxSize) = _ <: par(i,maxSize, @(i)*(i<size)) :> _;
 
-// the same as above, but much less CPU hungry:
-// we devide the time we want to look at into blocks,
+// The same as above, but much less CPU hungry:
+// We devide the time we want to look at into blocks,
 // get the sum of the first block, and add it to delayed versions of itself.
-// each delay is a multiple of the block size.
-// we switch the blocks on and off depending on the size we want to look at
-// finaly, we add a variable block that represents the values that are not covered by the whole blocks.
-blockDelaysum(size,block,maxSize) = _ <: variable,par(i,int(maxSize/block), integrate(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
-  variable = _ <: par(i,int(maxSize/block), delaysum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
-  integrate(n,x) = x <: par(i,n, @(i)) :> _;
+// Each delay is a multiple of the block size.
+// We switch the blocks on and off depending on the size we want to look at
+// Finaly, we add a variable block that represents the values that are not covered by the whole blocks.
+blockDelaysum(size,block,maxSize) = _ <: variable,par(i,int(maxSize/block), fixedDelaySum(block)@(int(i*block))*(i<floor(size/block))) :> _ with {
+  variable = _ <: par(i,int(maxSize/block), delaySum(int(decimal(size/block)*block),block)@(int(i*block))*(i==floor(size/block))) :> _;
+  fixedDelaySum(N,x) = x <: par(i,N, @(i)) :> _;
 
   // This one is a bit more efficient: 23% vs 33% CPU
   // in stereo RMS_FBcompressor_peak_limiter_N_chan with rmsMaxSize = 2^16
 
-  // integrate(n,x) = x - x @ n : + ~ _ ;
+  // fixedDelaySum(N,x) = x - x @ N : + ~ _ ;
 
   // Unfortunately, it also has a bug: after some time without gain reduction,
   // it refuses to go back into gain reduction, even when compiled with -double
   // This is can be fixed by doing it in fixed point, but that has other downsides.
   // see https://sourceforge.net/p/faudiostream/mailman/message/24275442/
 
-  // integrate(n,x) = x:float2fix : integrateprt(n) : fix2float;
-  // integrateprt(n,x) = x - x @ n : + ~ _ ;
+  // fixedDelaySum(N,x) = x:float2fix : fixedDelaySumPrt(N) : fix2float;
+  // fixedDelaySumPrt(N,x) = x - x @ N : + ~ _ ;
   // float2fix(x) = int(x*(1<<20));
   // fix2float(x) = float(x)/(1<<20);
 };
-// blocky(N,maxN,x)
+
+// The same as above, but MUCH less CPU hungry!   :D
+// This time we don't look at blocks of equal size,
+// but at blocks that are double the size of the previous block.
+// The fixedDelaySum is optimised in a similar way.
+binaryBlockDelaySum(N,maxN,x) = par(i,int2nrOfBits(maxN),fixedDelaySum(1<<i,x)@sumOfPrevDelays(N,maxN,i) *take(i+1,(int2bin(N,maxN)))):>_ with {
+  fixedDelaySum = case {
+    (1,x) => x;
+    (N,x) =>  fixedDelaySum(N/2,x) + fixedDelaySum(N/2,x)@(N/2);
+  };
+  sumOfPrevDelays(N,maxN,i) = (subseq((allDelays(N,maxN)),0,i):>_*(i>0)) with {
+  // this doesn't work:
+  // sumOfPrevDelays(N,maxN,i) = (subseq((allDelays(N,maxN)),0,i):>_) with {
+  // bug in subseq?
+    allDelays(N,maxN) = par(j, int2nrOfBits(maxN), (1<<j) *  take(j+1,(int2bin(N,maxN))) );
+  };
+};
+
+int2bin(N,maxN) = par(i,int2nrOfBits(maxN),int(floor(N/(1<<i)))%2);
+int2nrOfBits(maxN) = floor(log(maxN)/log(2))+1;
+
+// Slow:
 // RMS(time) = pow(_,2):(blockDelaysum(s,blockSize,rmsMaxSize)/s):sqrt with {
 //   s = int(time*sr):max(1);
 // };
 
-RMS(time) = pow(_,2):(blocky(s,rmsMaxSize)/s):sqrt with {
+// Fast:
+RMS(time) = pow(_,2):(binaryBlockDelaySum(s,rmsMaxSize)/s):sqrt with {
   s = int(time*sr):max(1);
 };
 
@@ -139,7 +142,7 @@ RMS(time) = pow(_,2):(blocky(s,rmsMaxSize)/s):sqrt with {
 compression_gain_N_chan(strength,thresh,att,rel,knee,prePost,link,1) =
   my_compression_gain_mono(strength,thresh,att,rel,knee,prePost);
 
-// the actual N-channel version:
+// The actual N-channel version:
 // Calculate the maximum gain reduction of N channels,
 // and then crossfade between that and each channel's own gain reduction,
 // to link/unlink channels
@@ -240,7 +243,7 @@ minimum(2) = min;
 minimum(N) = (minimum(N-1),_):min;
 
 compressor_N_chan_demo(N) =
-  bypass(cbp,compressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)));
+  bypass(cbp,FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,N):par(i, N, *(makeupgain)));
 
     comp_group(x) = vgroup("COMPRESSOR  [tooltip: Reference: http://en.wikipedia.org/wiki/Dynamic_range_compression]", x);
 
