@@ -8,11 +8,30 @@ process =
 // FFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,meter,2);
 // FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
 // RMS_FBFFcompressor_N_chan(strength,threshold,attack,release,knee,prePost,link,FBFF,meter,2);
-// RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
+RMS_FBcompressor_peak_limiter_N_chan(strength,threshold,thresholdLim,attack,release,knee,link,meter,2);
 // binaryBlock(4);
-blocky(9);
+// binaryBlock(6);
+// par(i, 5, 2<<i);
+// delaysum(8,8);
+// blocky(4);
+// int2bin(theN,maxN);
+// blocky(theN,maxN);
 
-blocky(N,x) = binaryBlock(evenN(N),x)+ ((N%2)*x@N);
+// sumOfPrevDelays(theN,maxN,3);
+
+allDelays(N,maxN) = par(j, floor(log(maxN)/log(2))+1, (1<<j) *  take(j+1,(int2bin(N,maxN))) );
+sumOfPrevDelays(N,maxN,i) = subseq((allDelays(N,maxN)),0,i):>_*(i>0);
+// +  `subseq((10,20,30,40,50,60), 1, 3) -> (20,30,40)`
+
+theN = vslider("N", 4, 1, maxN, 1);
+maxN = 8;
+// par(i, 3, take(i+1,(int2bin(4))));
+
+int2bin(N,maxN) = par(i,floor(log(maxN)/log(2))+1,int(floor(N/(1<<i)))%2);
+
+// blocky(N,x) = par(i, 3, take(i+1,(int2bin(5))));
+blocky(N,maxN,x) = par(i,floor(log(maxN)/log(2))+1,binaryBlock(1<<i,x)@sumOfPrevDelays(N,maxN,i) *take(i+1,(int2bin(N,maxN)))):>_;
+// blocky(N,x) = binaryBlock(evenN(N),x)+ ((N%2)*x@N);
 // blocky(n,x) = select2((n%2),binaryBlock(n,x),binaryBlock(n-1,x)'+x);
 // count((3,4));
 // par(i, 3, take(i+1,(par(j, 3, i*j)))) ;
@@ -106,8 +125,12 @@ blockDelaysum(size,block,maxSize) = _ <: variable,par(i,int(maxSize/block), inte
   // float2fix(x) = int(x*(1<<20));
   // fix2float(x) = float(x)/(1<<20);
 };
+// blocky(N,maxN,x)
+// RMS(time) = pow(_,2):(blockDelaysum(s,blockSize,rmsMaxSize)/s):sqrt with {
+//   s = int(time*sr):max(1);
+// };
 
-RMS(time) = pow(_,2):(blockDelaysum(s,blockSize,rmsMaxSize)/s):sqrt with {
+RMS(time) = pow(_,2):(blocky(s,rmsMaxSize)/s):sqrt with {
   s = int(time*sr):max(1);
 };
 
