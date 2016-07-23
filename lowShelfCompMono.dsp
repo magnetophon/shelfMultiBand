@@ -18,4 +18,4 @@ declare copyright "(C) 2015 Bart Brouns";
 
 import ("lowShelfComp.lib");
 
-process           = NchanFeedBackLimLowHighShelfFull(2);
+process           = NchanFeedBackLimLowHighShelfFull(1);
