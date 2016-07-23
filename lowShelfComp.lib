@@ -21,6 +21,7 @@ import ("effect.lib");
 sr = 44100;
 maxHoldTime = 1*sr; //sec
 maxGR = -40;
+prePostEnabled = 1;
 
 mainGroup(x)      = (vgroup("[1]", x));
 shelfGroup(x)     = mainGroup(hgroup("[0]", x));
