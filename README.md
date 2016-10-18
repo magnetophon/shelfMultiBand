@@ -2,13 +2,15 @@
 
 
 A multi-band compressor made out of shelving filters.
+
 When there is no compression going on, it is bit-transparent.
 
 
 
-#### usage
+### usage
 
 Here's a quick rundown of the parameters.
+
 The same info is displayed as tooltips
 
 
