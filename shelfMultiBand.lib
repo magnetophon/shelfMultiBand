@@ -12,7 +12,7 @@
 Based on blushcomp mono by Sampo Savolainen
  */
 declare author    "Bart Brouns";
-declare version   "0.5.1";
+declare version   "0.6";
 declare copyright "(C) 2015 Bart Brouns";
 
 import ("effect.lib");
@@ -48,8 +48,8 @@ prePost           = (hslider("[08]pre/post[tooltip: amount of GR beiong done ins
 channelLink       = (hslider("[09]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
 highKeep          = (hslider("[10]high keep[tooltip: the amount of high frequencies to be kept]",1, 0,   1,   0.001));
 highKeepFreq      = (hslider("[11]high keep frequency[unit:Hz][tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
-subKeep          = (hslider("[10]sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
-subKeepFreq      = (hslider("[11]sub keep frequency[unit:Hz][tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
+subKeep           = (hslider("[10]sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
+subKeepFreq       = (hslider("[11]sub keep frequency[unit:Hz][tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
 /*N               = 4;*/
 /*N               = 4;*/
 /*process         = ((cross(2*N):par(i,2,cross(N))))~(bus(N),par(i,N,!)):(par(i,N,!),bus(N));*/

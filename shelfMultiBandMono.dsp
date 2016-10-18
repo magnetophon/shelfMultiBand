@@ -11,11 +11,11 @@
 
 Based on blushcomp mono by Sampo Savolainen
  */
-declare name      "lowShelfCompMono";
+declare name      "shelfMultiBandMono";
 declare author    "Bart Brouns";
-declare version   "0.5.1";
+declare version   "0.6";
 declare copyright "(C) 2015 Bart Brouns";
 
-import ("lowShelfComp.lib");
+import ("shelfMultiBand.lib");
 
 process           = NchanFeedBackLimLowHighShelfFull(1);
