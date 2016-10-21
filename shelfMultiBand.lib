@@ -12,7 +12,7 @@
 Based on blushcomp mono by Sampo Savolainen
  */
 declare author    "Bart Brouns";
-declare version   "0.6";
+declare version   "0.6.1";
 declare copyright "(C) 2015 Bart Brouns";
 
 import("stdfaust.lib");
@@ -42,16 +42,16 @@ minRateDecay      = (hslider("[03]min release[unit:dB/s][tooltip: release rate w
 holdTime          = (hslider("[04]fade time[unit:seconds][tooltip: time to fade from min to max release, in sec. ]",0.2, 0,   1,  0.001)*maxHoldTime)+1;
 maxRateDecay      = (hslider("[05]max release[unit:dB/s][tooltip: release rate when 'release min/max' is at min, in dB/s]", 200, 1, 2000 , 1)/ma.SR);
 freq              = (hslider("[07]shelf freq[unit:Hz][tooltip: corner frequency of the shelving filter]",115, 1,   400,   1));
-xOverFreq         = (hslider("[08]sidechain x-over freq[unit:Hz][tooltip: corner frequency of the sidechain ro.cross-over]",115, 1,   400,   1));
+xOverFreq         = (hslider("[08]sidechain x-over freq[unit:Hz][tooltip: corner frequency of the sidechain cross-over]",115, 1,   400,   1));
 keepSpeed         = (hslider("[07]keepSpeed[tooltip: keep some of the 'release min/max' value, instead of a full reset to 0]",1, 0,   1,   0.001));
 prePost           = (hslider("[08]pre/post[tooltip: amount of GR beiong done inside or outside the shelving limiters]",1, 0,   1,   0.001))*prePostEnabled;
 channelLink       = (hslider("[09]channel link[tooltip: amount of link between the GR of individual channels]",1, 0,   1,   0.001));
 highKeep          = (hslider("[10]high keep[tooltip: the amount of high frequencies to be kept]",1, 0,   1,   0.001));
 highKeepFreq      = (hslider("[11]high keep frequency[unit:Hz][tooltip: the frequency from where on the highs should be kept ]",8000, 1000,   sr/2,   1));
-subKeep           = (hslider("[10]ma.sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
-subKeepFreq       = (hslider("[11]ma.sub keep frequency[unit:Hz][tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
+subKeep           = (hslider("[10]sub keep[tooltip: the amount of subs to be kept or killed]",-1, -1,   1,   0.001));
+subKeepFreq       = (hslider("[11]sub keep frequency[unit:Hz][tooltip: the frequency from where on the subs should be kept or killed ]",30, 1,   400,   1));
 /*N               = 4;*/
-/*process         = ((ro.cross(2*N):par(i,2,ro.cross(N))))~(si.bus(N),par(i,N,!)):(par(i,N,!),si.bus(N));*/
+/*process         = ((cross(2*N):par(i,2,cross(N))))~(si.bus(N),par(i,N,!)):(par(i,N,!),si.bus(N));*/
 /*process         = si.bus(2*N)<:(si.bus(N),par(i,N,!),par(i,N,!),si.bus(N));*/
 // process           = NchanFeedBackLimFull(2);
 // process = fi.high_shelf(highKeep,highKeepFreq);
