@@ -11,10 +11,11 @@
 
 Based on blushcomp mono by Sampo Savolainen
  */
-declare name      "shelfMultiBandMono";
-declare author    "Bart Brouns";
-declare version   "0.6.1";
-declare copyright "(C) 2015 Bart Brouns";
+declare name "shelfMultiBandMono";
+declare version "0.6.2";
+declare author "Bart Brouns";
+declare license "GPL-2.0-only";
+declare copyright "2015 - 2023, Bart Brouns";
 
 import ("shelfMultiBand.lib");
 
